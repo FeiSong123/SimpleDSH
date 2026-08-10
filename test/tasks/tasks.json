@@ -1,0 +1,45 @@
+{
+  "note": "Three fixed real tasks. Assets inherited from the retired real-task suites: prompts are the v9 direct wording, workspaces/verifiers are the original frozen v1 archives.",
+  "tasks": [
+    {
+      "id": "rt02",
+      "title": "preview observer isolation",
+      "prompt": "prompts/rt02.txt",
+      "workspace": "workspaces/rt02.tar",
+      "verifier": "verifiers/rt02.tar",
+      "writablePaths": ["src/ds/transport.ts", "src/session/kernel.ts"],
+      "verifierCommands": [
+        ["npm", "run", "test:protocol", "--", "--test-name-pattern=never-settling preview observer"],
+        ["npm", "run", "test:session", "--", "--test-name-pattern=preview observer"]
+      ],
+      "expectBeforeFix": [1, 1],
+      "expectAfterFix": [0, 0]
+    },
+    {
+      "id": "rt03",
+      "title": "native bash stream ownership",
+      "prompt": "prompts/rt03.txt",
+      "workspace": "workspaces/rt03.tar",
+      "verifier": "verifiers/rt03.tar",
+      "writablePaths": ["src/proc/index.ts"],
+      "verifierCommands": [
+        ["npm", "run", "test:effects", "--", "--test-name-pattern=native Bash keeps stream ownership when one callback crosses a coalescing boundary"]
+      ],
+      "expectBeforeFix": [1],
+      "expectAfterFix": [0]
+    },
+    {
+      "id": "rt04",
+      "title": "co-located terminal usage",
+      "prompt": "prompts/rt04.txt",
+      "workspace": "workspaces/rt04.tar",
+      "verifier": "verifiers/rt04.tar",
+      "writablePaths": ["src/ds/sse.ts"],
+      "verifierCommands": [
+        ["npm", "run", "test:protocol", "--", "--test-name-pattern=co-located usage"]
+      ],
+      "expectBeforeFix": [1],
+      "expectAfterFix": [0]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+version = 1
+request_model = "deepseek-v4-flash"
+currency = "USD"
+
+[peak]
+enabled = false
+multiplier = 2
+windows = ["09:00-12:00", "14:00-18:00"]
+tz = "Asia/Shanghai"
+
+[[regular]]
+id = "deepseek-v4-flash-regular-2026-08-03"
+observed_from = "2026-08-03T00:00:00.000Z"
+verified_at = "2026-08-05"
+cache_hit_picodollars_per_token = 2800
+cache_miss_picodollars_per_token = 140000
+output_picodollars_per_token = 280000

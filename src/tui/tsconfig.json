@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "outDir": "../../dist",
+    "composite": true,
+    "declaration": true,
+    "tsBuildInfoFile": "../../dist/tui.tsbuildinfo",
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false,
+    "noPropertyAccessFromIndexSignature": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "target": "ES2024",
+    "lib": [
+      "ES2024"
+    ]
+  },
+  "include": [
+    "./**/*.ts"
+  ],
+  "exclude": []
+}

@@ -1,0 +1,45 @@
+{
+  "name": "simpledsh",
+  "version": "0.1.0-rc.0",
+  "description": "A small, DeepSeek-native agent harness.",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "simpledsh": "dist/src/cli.js"
+  },
+  "files": [
+    "dist/src/",
+    "README.md",
+    "LICENSE.pi"
+  ],
+  "scripts": {
+    "build": "node scripts/clean-dist.mjs && tsc -p src/tui/tsconfig.json && tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
+    "check": "npm run build --silent && node scripts/check-package.mjs",
+    "test": "npm run test:bootstrap",
+    "test:bootstrap": "npm run build --silent && node --test dist/test/bootstrap.test.js test/env-metadata.test.mjs",
+    "test:protocol": "npm run build --silent && node scripts/run-node-tests.mjs dist/test/protocol",
+    "test:journal": "npm run build --silent && node scripts/run-node-tests.mjs dist/test/journal",
+    "test:context": "npm run build --silent && node scripts/run-node-tests.mjs dist/test/context",
+    "test:effects": "npm run build --silent && node scripts/run-node-tests.mjs dist/test/effects",
+    "test:session": "npm run build --silent && node scripts/run-node-tests.mjs dist/test/session dist/test/cli",
+    "test:recovery": "npm run build --silent && node scripts/run-node-tests.mjs dist/test/recovery dist/test/cost",
+    "test:security": "node scripts/blocked-stage.mjs \"Stage 08\"",
+    "test:acceptance": "node test/tasks/run.mjs --check",
+    "test:release": "node scripts/blocked-stage.mjs \"Stage 12\"",
+    "test:live:protocol": "npm run build --silent && node --test dist/test/live/protocol.test.js",
+    "test:live:acceptance": "npm run build --silent && node test/tasks/run.mjs"
+  },
+  "dependencies": {
+    "get-east-asian-width": "1.6.0",
+    "marked": "18.0.5",
+    "smol-toml": "1.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "6.0.3"
+  }
+}

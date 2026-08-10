@@ -1,0 +1,21 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime state
+.dsh/
+
+# Node build and package artifacts
+node_modules/
+dist/
+*.tgz
+
+# macOS metadata
+.DS_Store
+
+# Internal design notes and plans, not part of the published source
+dev/
+plans/
+AGENTS.md
+PLANS.md
