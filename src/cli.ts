@@ -93,6 +93,24 @@ Quarantine options (recover/reconcile only):
        [--force-ambiguous]
 `;
 
+/**
+ * A reader that closed early is not a failure.
+ *
+ * `simpledsh inspect <id> | head` leaves the last write with nowhere to go, and
+ * an EPIPE with no listener is an unhandled 'error' event and a stack trace.
+ * Exit on it, but with whatever exit code was already decided: a run that had
+ * settled on 4 because its verification failed must not report success just
+ * because the reader walked away. Any other stream error is still real.
+ */
+function exitOnClosedReader(stream: NodeJS.WriteStream): void {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EPIPE") process.exit(process.exitCode ?? 0);
+    throw error;
+  });
+}
+exitOnClosedReader(process.stdout);
+exitOnClosedReader(process.stderr);
+
 const SESSION_ID = /^ses_[0-9a-f]{32}$/u;
 const LEASE_FINGERPRINT = /^sha256:[0-9a-f]{64}$/u;
 const MAX_EVIDENCE_BYTES = 32 * 1024 * 1024;
@@ -453,22 +471,6 @@ class CliRenderer {
  * answer already streamed past as it was produced, so printing it a second time
  * is noise rather than output.
  */
-/**
- * EPIPE guard: when stdout/stderr is piped, the reader may close early (e.g.
- * `simpledsh ... | head`), turning the final write into an EPIPE that Node
- * would otherwise surface as an unhandled 'error' event crash. Exit cleanly
- * instead; any other stream error is still a real failure.
- */
-function ignorePipeClosure(stream: NodeJS.WriteStream): void {
-  stream.on("error", (err) => {
-    if (err !== null && err !== undefined && err.code === "EPIPE")
-      process.exit(0);
-    throw err;
-  });
-}
-ignorePipeClosure(process.stdout);
-ignorePipeClosure(process.stderr);
-
 function writeResult(renderer: CliRenderer | undefined, content: string): void {
   renderer?.finish();
   if (process.stdout.isTTY === true && process.stderr.isTTY === true) return;
