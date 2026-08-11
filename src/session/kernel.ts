@@ -1149,9 +1149,10 @@ async function initializeContinuation(
         : latest,
     undefined,
   );
-  // A Lineage created by compaction has no Run yet. Its first turn is a user
-  // turn, exactly like the first turn of a Session — there is no earlier Run on
-  // this prefix to continue from, because the prefix is new.
+  // A Lineage the Session switched to has no Run yet — whether it was created
+  // to compact the conversation or to change the reasoning effort. Its first
+  // turn is a user turn, exactly like the first turn of a Session: there is no
+  // earlier Run on this prefix to continue from, because the prefix is new.
   const previousRunId = previousRun?.runId;
   if (previousRunId !== undefined) {
     // The previous Run must be closed, but it may have closed either way: a Run
@@ -1164,7 +1165,7 @@ async function initializeContinuation(
         event.runId === previousRunId,
     );
     if (!closed) throw new SessionKernelError("invalid_state");
-  } else if (activation.payload.reason !== "compaction") {
+  } else if (activation.payload.reason === "initial") {
     throw new SessionKernelError("invalid_state");
   }
 

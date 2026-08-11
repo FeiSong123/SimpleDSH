@@ -2,7 +2,10 @@
 //   https://github.com/earendil-works/pi @ 05bf9df65155e047e4ba8459eaee9735e29a2e53
 //   packages/tui/src/components/editor.ts
 // Copyright (c) 2025 Mario Zechner. MIT License.
-// Adapted for SimpleDSH: .ts import specifiers changed to .js for NodeNext.
+// Adapted for SimpleDSH: .ts import specifiers changed to .js for NodeNext, and
+// an optional `prompt` on the first visible line plus an optional rounded
+// `frame`. Both write into padding the editor already reserved, so wrapping,
+// cursor placement and width accounting are untouched.
 
 import type { AutocompleteProvider, AutocompleteSuggestions } from "../autocomplete.js";
 import { getKeybindings } from "../keybindings.js";
@@ -239,6 +242,12 @@ export interface EditorTheme {
 export interface EditorOptions {
 	paddingX?: number;
 	autocompleteMaxVisible?: number;
+	/** Drawn in the left padding of the first line, e.g. "> ". */
+	prompt?: string;
+	/** Paints the prompt; identity by default. */
+	promptColor?: (text: string) => string;
+	/** Close the two rules into a rounded box. Needs paddingX >= 2. */
+	frame?: boolean;
 }
 
 const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
@@ -344,6 +353,10 @@ export class Editor implements Component, Focusable {
 	// Undo support
 	private undoStack = new UndoStack<EditorSnapshot>();
 
+	private prompt = "";
+	private promptColor: (text: string) => string = (text) => text;
+	private frame = false;
+
 	public onSubmit?: (text: string) => void;
 	public onChange?: (text: string) => void;
 	public disableSubmit: boolean = false;
@@ -354,6 +367,9 @@ export class Editor implements Component, Focusable {
 		this.borderColor = theme.borderColor;
 		const paddingX = options.paddingX ?? 0;
 		this.paddingX = Number.isFinite(paddingX) ? Math.max(0, Math.floor(paddingX)) : 0;
+		this.prompt = options.prompt ?? "";
+		if (options.promptColor) this.promptColor = options.promptColor;
+		this.frame = options.frame ?? false;
 		const maxVisible = options.autocompleteMaxVisible ?? 5;
 		this.autocompleteMaxVisible = Number.isFinite(maxVisible) ? Math.max(3, Math.min(20, Math.floor(maxVisible))) : 5;
 	}
@@ -498,6 +514,14 @@ export class Editor implements Component, Focusable {
 		this.lastWidth = layoutWidth;
 
 		const horizontal = this.borderColor("─");
+		// The side bars live in the padding the editor already reserves, so
+		// framing costs no content width and does not change how text wraps.
+		const framed = this.frame && paddingX >= 3 && width >= 4;
+		const bar = this.borderColor("│");
+		const rule = (left: string, right: string, middle: string): string =>
+			framed
+				? this.borderColor(left) + middle + this.borderColor(right)
+				: middle;
 
 		// Layout the text
 		const layoutLines = this.layoutText(layoutWidth);
@@ -525,15 +549,28 @@ export class Editor implements Component, Focusable {
 		const visibleLines = layoutLines.slice(this.scrollOffset, this.scrollOffset + maxVisibleLines);
 
 		const result: string[] = [];
-		const leftPadding = " ".repeat(paddingX);
-		const rightPadding = leftPadding;
+		// A framed line spends one column on the bar and one on the gap after
+		// it, leaving the rest of the padding for the prompt.
+		const edge = framed ? bar + " " : "";
+		const inset = framed ? paddingX - 2 : paddingX;
+		const leftPadding = edge + " ".repeat(inset);
+		const rightPadding = " ".repeat(inset) + (framed ? " " + bar : "");
+		const plainPadding = " ".repeat(paddingX);
+		// The prompt sits in the padding that is already reserved, so it costs
+		// no width and later lines stay aligned under the first.
+		const promptFits = this.prompt.length > 0 && this.prompt.length <= inset;
+		const promptPadding = promptFits
+			? edge + this.promptColor(this.prompt) + " ".repeat(inset - this.prompt.length)
+			: leftPadding;
+		let firstContentLine = true;
 
 		// Render top border (with scroll indicator if scrolled down)
+		const borderWidth = framed ? width - 2 : width;
 		if (this.scrollOffset > 0) {
-			const border = createScrollBorder("↑", this.scrollOffset, width);
-			result.push(this.borderColor(border));
+			const border = createScrollBorder("↑", this.scrollOffset, borderWidth);
+			result.push(rule("╭", "╮", this.borderColor(border)));
 		} else {
-			result.push(horizontal.repeat(width));
+			result.push(rule("╭", "╮", horizontal.repeat(borderWidth)));
 		}
 
 		// Render each visible layout line
@@ -578,19 +615,23 @@ export class Editor implements Component, Focusable {
 
 			// Calculate padding based on actual visible width
 			const padding = " ".repeat(Math.max(0, contentWidth - lineVisibleWidth));
-			const lineRightPadding = cursorInPadding ? rightPadding.slice(1) : rightPadding;
+			const lineRightPadding =
+				cursorInPadding && rightPadding.startsWith(" ") ? rightPadding.slice(1) : rightPadding;
 
 			// Render the line (no side borders, just horizontal lines above and below)
-			result.push(`${leftPadding}${displayText}${padding}${lineRightPadding}`);
+			result.push(
+				`${firstContentLine ? promptPadding : leftPadding}${displayText}${padding}${lineRightPadding}`,
+			);
+			firstContentLine = false;
 		}
 
 		// Render bottom border (with scroll indicator if more content below)
 		const linesBelow = layoutLines.length - (this.scrollOffset + visibleLines.length);
 		if (linesBelow > 0) {
-			const border = createScrollBorder("↓", linesBelow, width);
-			result.push(this.borderColor(border));
+			const border = createScrollBorder("↓", linesBelow, borderWidth);
+			result.push(rule("╰", "╯", this.borderColor(border)));
 		} else {
-			result.push(horizontal.repeat(width));
+			result.push(rule("╰", "╯", horizontal.repeat(borderWidth)));
 		}
 
 		// Add autocomplete list if active
@@ -599,7 +640,7 @@ export class Editor implements Component, Focusable {
 			for (const line of autocompleteResult) {
 				const lineWidth = visibleWidth(line);
 				const linePadding = " ".repeat(Math.max(0, contentWidth - lineWidth));
-				result.push(`${leftPadding}${line}${linePadding}${rightPadding}`);
+				result.push(`${plainPadding}${line}${linePadding}${plainPadding}`);
 			}
 		}
 

@@ -1,6 +1,6 @@
 # SimpleDSH
 
-A simple harness for DeepSeek.
+A cache-first, crash-recoverable coding agent for DeepSeek.
 
 SimpleDSH is a coding agent that runs in your terminal and talks to
 `api.deepseek.com` directly. It reads and edits files, runs shell commands, and
@@ -81,6 +81,7 @@ workspace path, `↑`/`↓` walk earlier messages, `Ctrl-D` exits.
 /help      keys and commands
 /clear     empty the screen, keep the conversation
 /compact   replace the conversation with a summary of itself
+/effort    how hard the model thinks: low, high, max
 /login     store a DeepSeek API key
 /logout    remove the stored key
 /session   show the current session id
@@ -93,6 +94,11 @@ that changes what gets sent; it also runs on its own once the prefix reaches
 512K prompt tokens, because the model gets noticeably worse as it approaches
 its 1M window. `--auto-compact-tokens <n>` moves that point, and `0` turns it
 off.
+
+`/effort` opens a slider. Changing it mid-session is allowed and costs a cache
+break: reasoning effort is part of the frozen prefix, so a new level means a new
+Cache ABI and a new lineage. The conversation carries across as a summary, the
+same way compaction does, and the next turn starts cold on purpose.
 
 To let a command decide whether the work stands up:
 
@@ -112,11 +118,14 @@ and where the run safely closed. Session state, the ledger and the screen are
 all projections of it. There is no second source of truth, so closing the
 terminal loses nothing.
 
-**Append-only, so the cache holds.** A conversation only ever grows at the end.
-The byte prefix therefore never changes and stays eligible for DeepSeek's
-context cache across turns. The hit ratio sits on the status line next to cost,
-because that ratio is the difference between a cheap session and an expensive
-one.
+**Cache is a first-class architectural concern.** The exact request bytes sent
+to DeepSeek are durable state, not something rebuilt from mutable objects. A
+conversation only ever grows at the end, retries reuse the original request
+snapshot, and planned breaks such as compaction start a new lineage instead of
+silently changing an old prefix. This maximizes cache-hit eligibility and makes
+accidental breaks detectable. Actual cache hits remain best-effort and under
+the provider's control; the measured hit ratio sits next to cost on the status
+line.
 
 **Interruption is a fact, not a crash.** A run that stops part-way closes at its
 last safe boundary. The next turn continues from there instead of replaying work

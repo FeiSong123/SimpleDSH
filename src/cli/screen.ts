@@ -12,6 +12,7 @@ import {
   TuiMainScreen,
   type Component,
   type SlashCommand,
+  matchesKey,
   type Terminal,
   type TuiInputListenerResult,
 } from "../tui/index.js";
@@ -21,6 +22,7 @@ const CTRL_C = "\u0003";
 const ENTER = "\r";
 const CTRL_D = "\u0004";
 const ESCAPE = "\u001b";
+
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const SPINNER_INTERVAL_MS = 90;
 
@@ -32,6 +34,8 @@ interface Activity {
 export interface ScreenHandlers {
   /** Enter on a non-empty line. */
   readonly onSubmit: (text: string) => void;
+  /** A level chosen on the slider, or null when it was dismissed. */
+  readonly onPick?: (value: string | null) => void;
   /** Ctrl-C, or Escape while a turn is running. */
   readonly onInterrupt: () => void;
   /** Ctrl-D on an empty line. */
@@ -48,6 +52,33 @@ export interface ScreenOptions {
 function firstLine(text: string, limit: number): string {
   const line = text.split("\n")[0] ?? "";
   return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
+}
+
+/**
+ * Model, effort and directory, narrowed until they fit.
+ *
+ * The path is what gives way, one leading segment at a time, because a wrapped
+ * footer costs a whole row of transcript and the model and effort are the two
+ * facts that change what the next turn does.
+ */
+function describeContext(
+  context: Readonly<{ model: string; effort: string; directory: string }>,
+  room: number,
+): string {
+  const head = `${context.model} · ${context.effort}`;
+  const segments = context.directory.split("/").filter((part) => part !== "");
+  let shortest = Number.POSITIVE_INFINITY;
+  for (let dropped = 0; dropped < segments.length; dropped += 1) {
+    const shown =
+      dropped === 0 ? context.directory : `…/${segments.slice(dropped).join("/")}`;
+    // Replacing a one-character segment with the ellipsis makes the path
+    // longer, so skip any step that does not actually buy a column.
+    if (shown.length >= shortest) continue;
+    shortest = shown.length;
+    const line = `${head} · ${shown}`;
+    if (line.length <= room) return line;
+  }
+  return head.length <= room ? head : context.model;
 }
 
 /**
@@ -68,11 +99,14 @@ export class Screen {
   #stream: Markdown | null = null;
   #streamText = "";
   #ledger = "";
+  #context: Readonly<{ model: string; effort: string; directory: string }> | null =
+    null;
   #queued = 0;
   #activity: Activity | null = null;
   #spinner: NodeJS.Timeout | null = null;
   #spinnerFrame = 0;
   #detachInput: (() => void) | null = null;
+  #slider: Readonly<{ label: string; stops: readonly string[]; at: number }> | null = null;
   readonly #commandNames: ReadonlySet<string>;
 
   constructor(options: ScreenOptions) {
@@ -82,10 +116,18 @@ export class Screen {
     // and is usually under version control.
     this.#tui = new TuiMainScreen(
       options.terminal ?? new ProcessTerminal(),
-      undefined,
+      // Show the terminal's own cursor at the edit point. It sits on the same
+      // cell as the drawn block, so the caret blinks the way every other input
+      // on the machine does, without a repaint timer running while idle.
+      true,
       join(homedir(), ".config", "dsh", "tui"),
     );
-    this.#editor = new Editor(this.#tui, editorTheme, { paddingX: 1 });
+    this.#editor = new Editor(this.#tui, editorTheme, {
+      paddingX: 4,
+      prompt: ">",
+      promptColor: color.tool,
+      frame: true,
+    });
     this.#editor.setAutocompleteProvider(
       new CombinedAutocompleteProvider(
         [...options.commands],
@@ -170,16 +212,34 @@ export class Screen {
     this.#refreshFooter();
   }
 
-  /** Cost, cache and context, already formatted. */
+  /** Cost, cache and context, already formatted and unpainted. */
   setLedger(text: string): void {
     this.#ledger = text;
     this.#refreshFooter();
   }
 
+  /**
+   * Model, effort and working directory.
+   *
+   * Kept as fields rather than a finished string because the footer has to fit
+   * the terminal: when the ledger arrives beside it, the path is what gives way.
+   */
+  setContext(model: string, effort: string, directory: string): void {
+    this.#context = Object.freeze({ model, effort, directory });
+    this.#refreshFooter();
+  }
+
   #refreshFooter(): void {
     const queued =
-      this.#queued === 0 ? "" : color.dim(` · ${String(this.#queued)} queued`);
-    this.#footer.setText(`${this.#ledger}${queued}`);
+      this.#queued === 0 ? "" : ` · ${String(this.#queued)} queued`;
+    const room = Math.max(20, this.#tui.terminal.columns - 2);
+    const spent = this.#ledger.length + queued.length + (this.#ledger === "" ? 0 : 3);
+    const context =
+      this.#context === null
+        ? ""
+        : describeContext(this.#context, Math.max(0, room - spent));
+    const parts = [context, this.#ledger].filter((part) => part.length > 0);
+    this.#footer.setText(color.dim(`${parts.join(" · ")}${queued}`));
     this.#tui.requestRender();
   }
 
@@ -238,6 +298,55 @@ export class Screen {
     );
   }
 
+
+  /**
+   * A row of discrete stops with the current one marked.
+   *
+   * Three settings do not need a list and a scrollbar. Drawn as a track so the
+   * ordering is visible — these are steps along one axis, not unrelated
+   * options — and it lives in the status row, which is already the place the
+   * screen uses to say what it is waiting for.
+   */
+  openSlider(label: string, stops: readonly string[], current: string): void {
+    const at = Math.max(0, stops.indexOf(current));
+    this.#slider = Object.freeze({ label, stops: Object.freeze([...stops]), at });
+    this.#drawSlider();
+  }
+
+  closeSlider(): void {
+    this.#slider = null;
+    this.#status.setText("");
+    this.#tui.requestRender();
+  }
+
+  #drawSlider(): void {
+    const slider = this.#slider;
+    if (slider === null) return;
+    const gap = " ──── ";
+    let track = "";
+    const marks: number[] = [];
+    for (const [index, stop] of slider.stops.entries()) {
+      if (index > 0) track += gap;
+      marks.push(track.length + Math.floor(Math.max(0, stop.length - 1) / 2));
+      track += stop;
+    }
+    let knobs = "";
+    for (const [index, column] of marks.entries()) {
+      knobs = knobs.padEnd(column, " ") + (index === slider.at ? "▲" : "·");
+    }
+    const painted = slider.stops
+      .map((stop, index) =>
+        index === slider.at ? color.tool(color.bold(stop)) : color.dim(stop),
+      )
+      .reduce((line, stop, index) => (index === 0 ? stop : line + color.dim(gap) + stop), "");
+    this.#status.setText(
+      `${color.dim(`${slider.label}  `)}${painted}\n` +
+        `${" ".repeat(slider.label.length + 2)}${color.tool(knobs)}   ` +
+        color.dim("←/→ choose · enter apply · esc cancel"),
+    );
+    this.#tui.requestRender();
+  }
+
   get editorText(): string {
     return this.#editor.getText();
   }
@@ -261,6 +370,35 @@ export class Screen {
       handlers.onSubmit(text);
     };
     const listener = (data: string): TuiInputListenerResult => {
+      // While the slider is up it owns the arrows and Enter; nothing reaches
+      // the editor, so the line being typed is still there afterwards.
+      if (this.#slider !== null) {
+        const slider = this.#slider;
+        // Ask the key parser rather than comparing bytes. The TUI negotiates
+        // the Kitty keyboard protocol when the terminal offers it, and then an
+        // arrow is not `ESC [ C` at all — matching raw sequences left the
+        // slider swallowing every key and looking frozen.
+        const left = matchesKey(data, "left");
+        if (left || matchesKey(data, "right")) {
+          const step = left ? -1 : 1;
+          const at = Math.min(slider.stops.length - 1, Math.max(0, slider.at + step));
+          this.#slider = Object.freeze({ ...slider, at });
+          this.#drawSlider();
+          return { consume: true };
+        }
+        if (matchesKey(data, "enter") || data === ENTER) {
+          const picked = slider.stops[slider.at] ?? null;
+          this.closeSlider();
+          handlers.onPick?.(picked);
+          return { consume: true };
+        }
+        if (matchesKey(data, "escape") || data === ESCAPE || data === CTRL_C) {
+          this.closeSlider();
+          handlers.onPick?.(null);
+          return { consume: true };
+        }
+        return { consume: true };
+      }
       if (data === CTRL_C) {
         handlers.onInterrupt();
         return { consume: true };

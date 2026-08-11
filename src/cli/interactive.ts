@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+
 import {
   loadPackagedFlashPriceBookV1,
   selectFlashRegularPriceV1,
@@ -29,9 +31,16 @@ import {
   pendingCompactionSummary,
   recordCompaction,
 } from "../session/compaction.js";
+import {
+  DEEPSEEK_MODEL,
+  DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from "../bytes/request.js";
 import type { SlashCommand } from "../tui/index.js";
 import { runLogin, runLogout } from "./login.js";
 import { isResumable, MAX_AUTO_RESUMES, withAutoResume } from "./resume.js";
+import { banner } from "./banner.js";
 import { Screen } from "./screen.js";
 import { withTruncationContinuation } from "./truncation.js";
 import { color, duration, money, tokens } from "./theme.js";
@@ -41,6 +50,7 @@ const COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "help", description: "keys and commands" },
   { name: "clear", description: "empty the screen, keep the conversation" },
   { name: "compact", description: "replace the conversation with a summary" },
+  { name: "effort", description: "how hard the model thinks" },
   { name: "login", description: "store a DeepSeek API key" },
   { name: "logout", description: "remove the stored key" },
   { name: "session", description: "show the current session id" },
@@ -93,6 +103,7 @@ export class InteractiveSession {
   #exitHintShown = false;
   #promptTokens = 0;
   #compacting = false;
+  #effort: ReasoningEffort | null = null;
   readonly #limits: RunBudgetLimits;
   readonly #compactAtTokens: number;
   #cachedPrice: FlashRegularPriceV1 | null = null;
@@ -152,6 +163,25 @@ export class InteractiveSession {
     this.#screen.say(formatToolActivity(activity));
   };
 
+  /**
+   * What the next turn will use, before any of it has been used.
+   *
+   * The ledger only exists once a request has come back, and until then the
+   * footer was blank — so the one moment you most need to know which model and
+   * which directory you are about to spend on told you neither.
+   */
+  #refreshContext(): void {
+    const home = homedir();
+    const where = this.#workspaceRoot.startsWith(home)
+      ? `~${this.#workspaceRoot.slice(home.length)}`
+      : this.#workspaceRoot;
+    this.#screen.setContext(
+      DEEPSEEK_MODEL,
+      `effort ${this.#effort ?? DEFAULT_REASONING_EFFORT}`,
+      where,
+    );
+  }
+
   readonly #onStatus = (report: CostReportV1): void => {
     const active = report.lineages.find(
       ({ lineageId }) => lineageId === report.activeLineageId,
@@ -166,13 +196,11 @@ export class InteractiveSession {
         ? "context -"
         : `context ${tokens(Number(observed))}`;
     this.#screen.setLedger(
-      color.dim(
-        [
-          money(report.knownSessionCost.total.usd),
-          `cache ${percent(active?.cacheHitRatio.basisPoints ?? null)}`,
-          context,
-        ].join(" · "),
-      ),
+      [
+        money(report.knownSessionCost.total.usd),
+        `cache ${percent(active?.cacheHitRatio.basisPoints ?? null)}`,
+        context,
+      ].join(" · "),
     );
   };
 
@@ -217,6 +245,9 @@ export class InteractiveSession {
         workspaceRoot: this.#workspaceRoot,
         sessionId: this.#sessionId,
         userInput,
+        ...(this.#effort === null || this.#started
+          ? {}
+          : { reasoningEffort: this.#effort }),
         environmentFacts,
         signal: this.#controller.signal,
         onPreview: this.#preview,
@@ -307,6 +338,13 @@ export class InteractiveSession {
         break;
       case "compact":
         await this.#compact("asked for");
+        break;
+      case "effort":
+        this.#screen.openSlider(
+          "effort",
+          REASONING_EFFORTS,
+          this.#effort ?? DEFAULT_REASONING_EFFORT,
+        );
         break;
       case "session":
         this.#screen.say(
@@ -407,7 +445,7 @@ export class InteractiveSession {
    * Lineage become active. Nothing durable is discarded — the old bytes stay
    * replayable, they simply stop being sent.
    */
-  async #compact(cause: string): Promise<void> {
+  async #compact(cause: string, reasoningEffort?: ReasoningEffort): Promise<void> {
     if (this.#sessionId === null || !this.#started) {
       this.#screen.say(color.warn("[nothing to compact yet]"));
       return;
@@ -467,6 +505,7 @@ export class InteractiveSession {
         sessionId: this.#sessionId,
         summary: summary.content,
         replacedPromptTokens: Math.max(before, this.#promptTokens),
+        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       });
       // #promptTokens is refreshed by the summary request itself, so this is
       // what the model actually saw rather than a reading from a turn ago.
@@ -490,6 +529,38 @@ export class InteractiveSession {
       this.#controller = null;
       this.#compacting = false;
     }
+  }
+
+  /**
+   * Apply a level chosen on the slider.
+   *
+   * Effort is part of the Cache ABI, so changing it mid-session cannot mean
+   * editing the request bytes already sent. It means the conversation carries
+   * on under a new Lineage: the model writes a handover note on the old one —
+   * still a cache hit — and the next turn starts cold under the new setting.
+   * That cost is real and stated rather than hidden.
+   */
+  async #chooseEffort(value: string | null): Promise<void> {
+    if (value === null) return;
+    const chosen = REASONING_EFFORTS.find((level) => level === value);
+    if (chosen === undefined) return;
+    const current = this.#effort ?? DEFAULT_REASONING_EFFORT;
+    if (chosen === current) {
+      this.#screen.say(color.dim(`effort stays ${chosen}`));
+      return;
+    }
+    this.#effort = chosen;
+    this.#refreshContext();
+    if (!this.#started || this.#sessionId === null) {
+      this.#screen.say(color.dim(`effort ${chosen}`));
+      return;
+    }
+    this.#screen.say(
+      color.dim(
+        `effort ${current} → ${chosen} · the prefix restarts cold under the new setting`,
+      ),
+    );
+    await this.#compact(`effort changed to ${chosen}`, chosen);
   }
 
   #requestExit(): void {
@@ -548,14 +619,27 @@ export class InteractiveSession {
     }
     this.#screen.attach({
       onSubmit: this.#onSubmit,
+      onPick: (value) => {
+        void this.#chooseEffort(value);
+      },
       onInterrupt: this.#onInterrupt,
       onExit: () => {
         this.#requestExit();
       },
     });
-    this.#screen.say(
-      `${color.bold("simpledsh")} ${color.dim("— a simple harness for DeepSeek · /help")}`,
-    );
+    // `columns` is 0, not undefined, on a terminal that never reported a size,
+    // so `??` is not enough to fall back on.
+    this.#screen.blank();
+    for (const line of banner(process.stdout.columns || 80)) {
+      // A Text component of "" occupies no row, so the banner's own separators
+      // have to be asked for as spacers or the blocks come out flush.
+      if (line === "") this.#screen.blank();
+      else this.#screen.say(line);
+    }
+    this.#screen.blank();
+    this.#screen.say(color.dim("/help for keys and commands"));
+    this.#screen.blank();
+    this.#refreshContext();
     if (this.#sessionId !== null && this.#started) {
       this.#screen.say(color.dim(`continuing ${this.#sessionId}`));
     }

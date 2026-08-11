@@ -389,7 +389,11 @@ for (const path of sourceInventory) {
   const source = readFileSync(resolve(projectRoot, path), "utf8");
   // The interactive layer also probes terminal capabilities; hold it to the
   // same allowlist rather than exempting it.
-  if (path.startsWith("src/tui/") || path === "src/cli/theme.ts") {
+  if (
+    path.startsWith("src/tui/") ||
+    path === "src/cli/theme.ts" ||
+    path === "src/cli/banner.ts"
+  ) {
     if (/readFileSync\([^\n]*\.env/u.test(source)) {
       fail(`terminal layer must not read .env: ${path}`);
     }

@@ -1,4 +1,6 @@
 import { utf8Bytes } from "../bytes/ops.js";
+import type { ReasoningEffort } from "../bytes/request.js";
+import { buildCacheAbiV2 } from "../lineage/index.js";
 import {
   newLineageId,
   openJournal,
@@ -41,6 +43,15 @@ export async function recordCompaction(input: {
   readonly sessionId: SessionId;
   readonly summary: string;
   readonly replacedPromptTokens: number;
+  /**
+   * Reopen the conversation under a different reasoning effort.
+   *
+   * Effort is part of the Cache ABI, so this is an ABI change rather than a
+   * compaction: a different frozen zone, a different Lineage, and a prefix that
+   * starts cold. The summary rides across either way, which is what makes
+   * changing effort mid-session possible at all.
+   */
+  readonly reasoningEffort?: ReasoningEffort;
   readonly clock?: Parameters<typeof openJournal>[2];
   readonly eventIds?: Parameters<typeof openJournal>[3];
 }): Promise<CompactionResult> {
@@ -98,25 +109,78 @@ export async function recordCompaction(input: {
       },
     });
 
+    // Changing effort changes the frozen zone, so the new Lineage needs its own
+    // Cache ABI declared before it can be started under it.
+    let cacheAbiId = started.payload.cacheAbiId;
+    let parentId = published.id;
+    if (input.reasoningEffort !== undefined) {
+      const abi = buildCacheAbiV2(undefined, input.reasoningEffort);
+      if (abi.cacheAbiId !== cacheAbiId) {
+        const manifest = await opened.artifacts.publishArtifact(
+          abi.manifestBytes,
+          {
+            lineCount: null,
+            mediaType: "application/octet-stream",
+            artifactType: "cache_abi_manifest",
+            streamBytes: null,
+            hardLimitReached: null,
+            descendantsReaped: null,
+            toolCallId: null,
+            terminal: null,
+          },
+        );
+        const manifestArtifactId = (
+          await import("../journal/index.js")
+        ).newArtifactId();
+        const manifestEvent = await opened.writer.append({
+          type: "artifact_published",
+          sessionId: input.sessionId,
+          parentId,
+          payload: { artifactId: manifestArtifactId, ...manifest },
+        });
+        const declared = await opened.writer.append({
+          type: "cache_abi_declared",
+          sessionId: input.sessionId,
+          parentId: manifestEvent.id,
+          payload: {
+            cacheAbiId: abi.cacheAbiId,
+            manifestArtifactId,
+            manifestByteCount: abi.manifestBytes.byteLength,
+          },
+        });
+        cacheAbiId = abi.cacheAbiId;
+        parentId = declared.id;
+      }
+    }
+    const changesAbi = cacheAbiId !== started.payload.cacheAbiId;
+
     const toLineageId = newLineageId();
     await opened.writer.append({
       type: "lineage_started",
       sessionId: input.sessionId,
       lineageId: toLineageId,
-      parentId: published.id,
-      payload: { cacheAbiId: started.payload.cacheAbiId },
+      parentId,
+      payload: { cacheAbiId },
     });
     await opened.writer.append({
       type: "cache_break",
       sessionId: input.sessionId,
-      payload: {
-        classification: "planned",
-        fromLineageId,
-        toLineageId,
-        reason: "compaction",
-        summaryArtifactId,
-        replacedPromptTokens: input.replacedPromptTokens,
-      },
+      payload: changesAbi
+        ? {
+            classification: "planned",
+            fromLineageId,
+            toLineageId,
+            reason: "abi_change",
+            authorizedRevision: `reasoning_effort=${input.reasoningEffort ?? ""}`,
+          }
+        : {
+            classification: "planned",
+            fromLineageId,
+            toLineageId,
+            reason: "compaction",
+            summaryArtifactId,
+            replacedPromptTokens: input.replacedPromptTokens,
+          },
     });
     await opened.writer.append({
       type: "lineage_activated",
@@ -125,7 +189,7 @@ export async function recordCompaction(input: {
       payload: {
         previousLineageId: fromLineageId,
         nextLineageId: toLineageId,
-        reason: "compaction",
+        reason: changesAbi ? "abi_change" : "compaction",
       },
     });
     return Object.freeze({
@@ -137,6 +201,25 @@ export async function recordCompaction(input: {
   } finally {
     await opened.writer.close();
   }
+}
+
+/** The handover note published just before a Lineage switch. */
+function lastSummaryArtifactId(
+  events: readonly VerifiedJournalEvent<never>[] | readonly { readonly type: string; readonly seq: number; readonly payload: unknown }[],
+  beforeSeq: number,
+): string | null {
+  let found: string | null = null;
+  for (const event of events as readonly VerifiedJournalEvent<"artifact_published">[]) {
+    if (
+      event.type === "artifact_published" &&
+      event.seq < beforeSeq &&
+      event.payload.artifactType === "fact" &&
+      event.payload.mediaType.startsWith("text/plain")
+    ) {
+      found = event.payload.artifactId;
+    }
+  }
+  return found;
 }
 
 /**
@@ -155,7 +238,11 @@ export async function pendingCompactionSummary(
   const activation = events.reduce<
     VerifiedJournalEvent<"lineage_activated"> | undefined
   >((latest, event) => (event.type === "lineage_activated" ? event : latest), undefined);
-  if (activation?.payload.reason !== "compaction") return null;
+  // Either switch leaves an empty prefix that still owes the summary: the
+  // conversation was replaced by it, or reopened under a different effort.
+  if (activation === undefined) return null;
+  const reason = activation.payload.reason;
+  if (reason !== "compaction" && reason !== "abi_change") return null;
   const lineageId = activation.payload.nextLineageId;
   if (events.some((event) => event.type === "run_started" && event.lineageId === lineageId)) {
     return null;
@@ -164,18 +251,22 @@ export async function pendingCompactionSummary(
     (event): event is VerifiedJournalEvent<"cache_break"> =>
       event.type === "cache_break" &&
       event.payload.classification === "planned" &&
-      event.payload.reason === "compaction" &&
       event.payload.toLineageId === lineageId,
   );
   if (abandon === undefined) return null;
   const broken = abandon.payload;
-  if (broken.classification !== "planned" || broken.reason !== "compaction") {
-    return null;
-  }
+  if (broken.classification !== "planned") return null;
+  // An effort change records the reason it was authorised rather than the
+  // summary id, so find the note it left beside the break.
+  const summaryArtifactId =
+    broken.reason === "compaction"
+      ? broken.summaryArtifactId
+      : lastSummaryArtifactId(events, abandon.seq);
+  if (summaryArtifactId === null) return null;
   const artifact = events.find(
     (event): event is VerifiedJournalEvent<"artifact_published"> =>
       event.type === "artifact_published" &&
-      event.payload.artifactId === broken.summaryArtifactId,
+      event.payload.artifactId === summaryArtifactId,
   );
   if (artifact === undefined) return null;
   const { openArtifactStoreReadOnly } = await import("../artifact/store.js");

@@ -16,13 +16,20 @@ function runNode(args: readonly string[]) {
 }
 
 test("compiled CLI rejects an invalid invocation without starting a Session", () => {
+  // No arguments and no terminal. What matters is that it stops before any
+  // Session exists — the exit code and the empty stdout are the evidence — and
+  // that it says which invocation would have worked.
   const result = runNode([resolve(projectRoot, "dist/src/cli.js")]);
 
   strictEqual(result.error, undefined);
   strictEqual(result.signal, null);
   strictEqual(result.status, 2);
   strictEqual(result.stdout, "");
-  strictEqual(result.stderr, "simpledsh: invalid_invocation\n");
+  strictEqual(
+    result.stderr,
+    "simpledsh: interactive mode needs a terminal; use simpledsh run <prompt> instead\n" +
+      "simpledsh: invalid_invocation\n",
+  );
 });
 
 test("blocked-stage helper reports the requested stage", () => {
