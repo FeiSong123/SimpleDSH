@@ -38,7 +38,7 @@ const fixedClock = {
 };
 
 test("minimal real Journal Artifact restart chain rebuilds identical ids bytes sequence and hashes", async (t) => {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-journal-e2e-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-journal-e2e-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
 
   const opened = await openJournal(

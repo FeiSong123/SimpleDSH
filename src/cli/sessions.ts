@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { freezeBytes } from "../bytes/types.js";
+import { storageDirectoryName } from "../journal/paths.js";
 import { viewUser } from "../bytes/view.js";
 import { openJournalReadOnly, type SessionId } from "../journal/index.js";
 import type { AnyVerifiedJournalEvent } from "../journal/index.js";
@@ -59,7 +60,7 @@ async function summarize(
     const opened = await openJournalReadOnly(workspaceRoot, sessionId);
     events = opened.replay.events;
   } catch {
-    // A Session that cannot be replayed read-only is not listable. `simpledsh
+    // A Session that cannot be replayed read-only is not listable. `flashcoder
     // inspect` still reports exactly why.
     return null;
   }
@@ -110,7 +111,9 @@ export async function listSessions(
 ): Promise<readonly SessionSummary[]> {
   let entries: string[];
   try {
-    entries = await readdir(join(workspaceRoot, ".dsh", "sessions"));
+    entries = await readdir(
+      join(workspaceRoot, storageDirectoryName(workspaceRoot), "sessions"),
+    );
   } catch {
     return Object.freeze([]);
   }
@@ -128,7 +131,7 @@ export async function listSessions(
 }
 
 /**
- * The Session `simpledsh continue` picks when the caller names none: the most
+ * The Session `flashcoder continue` picks when the caller names none: the most
  * recently active one that is safe to append a new user turn to.
  */
 export async function mostRecentContinuableSession(
@@ -155,7 +158,7 @@ function when(timestamp: string | null): string {
  *
  * The id sits on the right, where it is out of the way of the two things you
  * read a list like this for — when you were last in a Session and what you were
- * doing in it — but still copyable into `simpledsh continue`. Between them the
+ * doing in it — but still copyable into `flashcoder continue`. Between them the
  * subject takes whatever room is left; the turn count is dropped before the
  * subject is squeezed under twenty columns, and the subject goes before the
  * number, the date, the state or the id do.

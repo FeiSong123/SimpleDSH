@@ -22,13 +22,15 @@ import {
   PRECEDING_BASE_SYSTEM_PROMPT,
   PREVIOUS_BASE_SYSTEM_PROMPT,
   PRIOR_BASE_SYSTEM_PROMPT,
-  RELEASED_BASE_SYSTEM_PROMPT,
+  RC1_BASE_SYSTEM_PROMPT,
+  RC2_BASE_SYSTEM_PROMPT,
   RESOLVE_BASE_SYSTEM_PROMPT,
   materializeLegacySystemMessage,
   materializePrecedingSystemMessage,
   materializePreviousSystemMessage,
   materializePriorSystemMessage,
-  materializeReleasedSystemMessage,
+  materializeRc1SystemMessage,
+  materializeRc2SystemMessage,
   materializeResolveSystemMessage,
   materializeSystemMessage,
 } from "../bytes/system.js";
@@ -37,6 +39,9 @@ import type { ToolResultProfile } from "../bytes/tool-result.js";
 import { viewSystem } from "../bytes/view.js";
 import type { CacheAbiId, Sha256 } from "../journal/types.js";
 
+// These four strings are hashed into every Cache ABI manifest, so they are
+// durable identity rather than branding. The project was renamed; they were
+// not, because renaming them would orphan every Session ever recorded.
 export const PROTOCOL_VERSION_V1 = "dsh-protocol-v1" as const;
 export const PROTOCOL_VERSION_V2 = "dsh-protocol-v2" as const;
 export const PROJECTOR_VERSION_V1 = "dsh-projector-v1" as const;
@@ -192,9 +197,10 @@ function canonicalSystemBlobFor(
 
 type SystemPromptProfile =
   | "current"
-  // Named after the release that froze it rather than another synonym for
+  // Named after the release that froze each rather than another synonym for
   // "old": the ladder already has preceding, previous and prior.
-  | "released"
+  | "rc1"
+  | "rc2"
   | "resolve"
   | "preceding"
   | "previous"
@@ -223,10 +229,18 @@ function canonicalSystemProfile(
     canonicalSystemBlobFor(
       systemBlob,
       content,
-      RELEASED_BASE_SYSTEM_PROMPT,
-      materializeReleasedSystemMessage,
+      RC1_BASE_SYSTEM_PROMPT,
+      materializeRc1SystemMessage,
     )
-  ) return "released";
+  ) return "rc1";
+  if (
+    canonicalSystemBlobFor(
+      systemBlob,
+      content,
+      RC2_BASE_SYSTEM_PROMPT,
+      materializeRc2SystemMessage,
+    )
+  ) return "rc2";
   if (
     canonicalSystemBlobFor(
       systemBlob,
@@ -389,7 +403,8 @@ function loadCacheAbiForProtocol(
     (protocolVersion === PROTOCOL_VERSION_V2 &&
       (toolsProfile === "search-v1" || toolsProfile === "edit-v5") &&
       (systemProfile === "current" ||
-        systemProfile === "released" ||
+        systemProfile === "rc1" ||
+        systemProfile === "rc2" ||
         systemProfile === "resolve" ||
         systemProfile === "previous")) ||
     (protocolVersion === PROTOCOL_VERSION_V2 &&

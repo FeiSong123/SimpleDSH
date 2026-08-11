@@ -245,7 +245,7 @@ async function replayBytes(
   bytes: Uint8Array,
   selectedVerifier: JournalReferenceVerifier = verifier,
 ) {
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-replay-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-replay-"));
   const path = join(directory, "log.jsonl");
   await writeFile(path, bytes, { mode: 0o600 });
   const handle = await open(path, "r");
@@ -271,7 +271,7 @@ test("rebuild from Journal and referenced bytes is deterministic without metadat
 
 test("Journal append and replay reject output_limit neither/both terminal mutations", async (t) => {
   const session = minimalEvents()[0]!;
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-output-limit-append-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-output-limit-append-"));
   const path = join(directory, "log.jsonl");
   const handle = await open(path, "ax+", 0o600);
   let nextEvent = 0;

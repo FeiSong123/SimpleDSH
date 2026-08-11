@@ -26,7 +26,7 @@ function summary(
 }
 
 test("a row leads with when and what, and ends with the id", () => {
-  // The id is what you copy into `simpledsh continue`, but it is not what you
+  // The id is what you copy into `flashcoder continue`, but it is not what you
   // read the list for, so it goes to the right of both.
   const [row] = sessionListRows([summary("a")], null, WIDE);
   assert.match(row?.text ?? "", STAMP);

@@ -1,6 +1,6 @@
 {
-  "name": "simpledsh",
-  "version": "0.1.0-rc.2",
+  "name": "flashcoder",
+  "version": "0.1.0-rc.3",
   "description": "A small, DeepSeek-native agent harness.",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "node": ">=22"
   },
   "bin": {
-    "simpledsh": "dist/src/cli.js"
+    "flashcoder": "dist/src/cli.js"
   },
   "files": [
     "dist/src/",

@@ -19,8 +19,13 @@ async function home(t: TestContext): Promise<string> {
   return root;
 }
 
-function writeCredentials(homeDir: string, contents: string, mode = 0o600): string {
-  const dir = join(homeDir, ".config", "dsh");
+function writeCredentials(
+  homeDir: string,
+  contents: string,
+  mode = 0o600,
+  directory = "flashcoder",
+): string {
+  const dir = join(homeDir, ".config", directory);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = join(dir, "credentials");
   writeFileSync(path, contents, { mode });
@@ -35,9 +40,37 @@ function emptyProject(t: TestContext): Promise<string> {
 test("the stored path is under the user's config directory", () => {
   assert.equal(
     userCredentialPath({ HOME: "/home/someone" }),
-    "/home/someone/.config/dsh/credentials",
+    "/home/someone/.config/flashcoder/credentials",
   );
   assert.throws(() => userCredentialPath({}), CredentialError);
+});
+
+test("a key stored under the old name is still found", async (t) => {
+  // Renaming the project should not make anyone log in again. The old path is
+  // read and never written, so `logout` and the next `login` move it across.
+  const homeDir = await home(t);
+  const project = await emptyProject(t);
+  writeCredentials(homeDir, `DEEPSEEK_API_KEY=${SECRET}\n`, 0o600, "dsh");
+
+  const state = loadDeepSeekCredentialState({
+    environment: { HOME: homeDir },
+    projectRoot: project,
+  });
+  assert.equal(state.credentialPresent, true);
+});
+
+test("the current path wins over the one under the old name", async (t) => {
+  const homeDir = await home(t);
+  const project = await emptyProject(t);
+  // Unreadable if it were ever reached: an empty key fails validation.
+  writeCredentials(homeDir, "DEEPSEEK_API_KEY=\n", 0o600, "dsh");
+  writeCredentials(homeDir, `DEEPSEEK_API_KEY=${SECRET}\n`);
+
+  const state = loadDeepSeekCredentialState({
+    environment: { HOME: homeDir },
+    projectRoot: project,
+  });
+  assert.equal(state.credentialPresent, true);
 });
 
 test("a stored key is used when the environment and .env have none", async (t) => {
@@ -110,5 +143,8 @@ test("the stored file keeps owner-only permissions", async (t) => {
   const homeDir = await home(t);
   const path = writeCredentials(homeDir, `DEEPSEEK_API_KEY=${SECRET}\n`);
   assert.equal(statSync(path).mode & 0o777, 0o600);
-  assert.equal(statSync(join(homeDir, ".config", "dsh")).mode & 0o777, 0o700);
+  assert.equal(
+    statSync(join(homeDir, ".config", "flashcoder")).mode & 0o777,
+    0o700,
+  );
 });

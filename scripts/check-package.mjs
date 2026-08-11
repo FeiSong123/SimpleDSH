@@ -74,16 +74,16 @@ const expectedReadyScripts = {
   "test:live:acceptance": "npm run build --silent && node test/tasks/run.mjs",
 };
 
-if (manifest.name !== "simpledsh") fail("package name must be simpledsh");
+if (manifest.name !== "flashcoder") fail("package name must be flashcoder");
 // Pinned to one exact version rather than a range: the released tarball is
 // named after it, so a bump has to be a deliberate edit here and not a side
 // effect of `npm version`.
-if (manifest.version !== "0.1.0-rc.2") fail("bootstrap version must be 0.1.0-rc.2");
+if (manifest.version !== "0.1.0-rc.3") fail("bootstrap version must be 0.1.0-rc.3");
 if (manifest.private !== true) fail("bootstrap package must remain private");
 if (manifest.type !== "module") fail("package type must be module");
 if (manifest.license !== "UNLICENSED") fail("bootstrap license must be UNLICENSED");
 if (manifest.engines?.node !== ">=22") fail("Node engine floor must be >=22");
-if (manifest.bin?.simpledsh !== "dist/src/cli.js") fail("simpledsh bin path is not canonical");
+if (manifest.bin?.flashcoder !== "dist/src/cli.js") fail("flashcoder bin path is not canonical");
 sameRecord(
   manifest.files,
   ["dist/src/", "README.md", "LICENSE.pi"],

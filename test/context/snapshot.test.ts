@@ -239,7 +239,7 @@ async function journalWriter(
   order: string[],
   failBeforeSync = false,
 ): Promise<JournalWriter> {
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-snapshot-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-snapshot-"));
   const handle = await open(join(directory, "log.jsonl"), "ax+", 0o600);
   let nextEvent = 0;
   const writer = new JournalWriter({

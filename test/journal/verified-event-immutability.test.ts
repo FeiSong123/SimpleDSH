@@ -48,7 +48,7 @@ const fixedClock = {
 };
 
 test("returned Artifact payload cannot poison bindings before append and reopen", async (t) => {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-event-immutable-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-event-immutable-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
 
   const opened = await openJournal(

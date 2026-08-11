@@ -125,7 +125,7 @@ function footerRow(
   view.setContext(
     "deepseek-v4-flash",
     "effort max",
-    "~/Downloads/projects/SimpleDSH",
+    "~/Downloads/projects/FlashCoder",
   );
   view.setLedger("$0.0000 · cache 83.90% · context 1K");
   const rows = drawn()
@@ -139,7 +139,7 @@ test("a wide terminal shows the model, the effort and the whole path", (t) => {
   const { text, rows } = footerRow(110, t);
   assert.equal(rows, 1, "the footer wrapped");
   assert.ok(text.length <= 110, `${String(text.length)} columns`);
-  assert.match(text, /deepseek-v4-flash · effort max · ~\/Downloads\/projects\/SimpleDSH/u);
+  assert.match(text, /deepseek-v4-flash · effort max · ~\/Downloads\/projects\/FlashCoder/u);
   assert.match(text, /cache 83\.90%/u);
 });
 

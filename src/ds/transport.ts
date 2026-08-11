@@ -539,7 +539,7 @@ export function runDeepSeekOfficialWithRetry(
 }
 
 /**
- * One minimal non-streaming request, used only by `simpledsh login` to reject a bad
+ * One minimal non-streaming request, used only by `flashcoder login` to reject a bad
  * key before it is stored. Lives here because `src/ds` owns every outbound
  * DeepSeek call; the key only ever appears in the Authorization header.
  */

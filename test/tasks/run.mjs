@@ -21,7 +21,7 @@ import { dirname, join, relative, resolve } from "node:path";
 const TASKS_DIR = import.meta.dirname;
 const REPO = resolve(TASKS_DIR, "..", "..");
 const CLI = join(REPO, "dist", "src", "cli.js");
-const IGNORED_ROOTS = new Set([".dsh", "dist", "node_modules", ".git"]);
+const IGNORED_ROOTS = new Set([".flashcoder", ".dsh", "dist", "node_modules", ".git"]);
 const DEFAULT_TIMEOUT_SECONDS = 1800;
 
 function parseArguments(argv) {

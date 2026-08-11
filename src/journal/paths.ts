@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -18,7 +18,7 @@ const FILE_MODE = 0o600;
 
 export interface SessionPaths {
   readonly workspaceRoot: string;
-  readonly dshDir: string;
+  readonly storageDir: string;
   readonly sessionsDir: string;
   readonly sessionDir: string;
   readonly logPath: string;
@@ -41,6 +41,27 @@ function throwIo(): never {
   throw journalError("JOURNAL_IO");
 }
 
+/** The directory this workspace keeps its Sessions in. */
+export const STORAGE_DIRECTORY = ".flashcoder";
+/** What it was called while this was SimpleDSH. */
+export const LEGACY_STORAGE_DIRECTORY = ".dsh";
+
+/**
+ * Which of the two a workspace uses.
+ *
+ * A workspace that already has Sessions under the old name keeps using it:
+ * moving a Journal is a rewrite, and this is a system that does not rewrite
+ * durable state. A workspace with nothing under the old name gets the new one.
+ */
+export function storageDirectoryName(workspaceRoot: string): string {
+  if (existsSync(join(workspaceRoot, STORAGE_DIRECTORY))) {
+    return STORAGE_DIRECTORY;
+  }
+  return existsSync(join(workspaceRoot, LEGACY_STORAGE_DIRECTORY))
+    ? LEGACY_STORAGE_DIRECTORY
+    : STORAGE_DIRECTORY;
+}
+
 export function createSessionPaths(
   workspaceRoot: string,
   sessionId: string,
@@ -50,13 +71,13 @@ export function createSessionPaths(
   }
 
   const canonicalWorkspaceRoot = resolve(workspaceRoot);
-  const dshDir = join(canonicalWorkspaceRoot, ".dsh");
-  const sessionsDir = join(dshDir, "sessions");
+  const storageDir = join(canonicalWorkspaceRoot, storageDirectoryName(canonicalWorkspaceRoot));
+  const sessionsDir = join(storageDir, "sessions");
   const sessionDir = join(sessionsDir, sessionId);
 
   return Object.freeze({
     workspaceRoot: canonicalWorkspaceRoot,
-    dshDir,
+    storageDir,
     sessionsDir,
     sessionDir,
     logPath: join(sessionDir, "log.jsonl"),
@@ -299,12 +320,12 @@ export async function bootstrapSession(
   await assertDirectoryWithoutMode(paths.workspaceRoot);
 
   await ensureDirectory(
-    paths.dshDir,
+    paths.storageDir,
     paths.workspaceRoot,
     false,
     controls,
   );
-  await ensureDirectory(paths.sessionsDir, paths.dshDir, true, controls);
+  await ensureDirectory(paths.sessionsDir, paths.storageDir, true, controls);
   await ensureDirectory(paths.sessionDir, paths.sessionsDir, true, controls);
 
   for (const [parent, leaf] of [

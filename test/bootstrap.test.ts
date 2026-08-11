@@ -27,8 +27,8 @@ test("compiled CLI rejects an invalid invocation without starting a Session", ()
   strictEqual(result.stdout, "");
   strictEqual(
     result.stderr,
-    "simpledsh: interactive mode needs a terminal; use simpledsh run <prompt> instead\n" +
-      "simpledsh: invalid_invocation\n",
+    "flashcoder: interactive mode needs a terminal; use flashcoder run <prompt> instead\n" +
+      "flashcoder: invalid_invocation\n",
   );
 });
 

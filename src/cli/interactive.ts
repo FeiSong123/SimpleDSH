@@ -60,8 +60,8 @@ const COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "login", description: "store a DeepSeek API key" },
   { name: "logout", description: "remove the stored key" },
   { name: "session", description: "list this workspace's sessions" },
-  { name: "exit", description: "leave simpledsh" },
-  { name: "quit", description: "leave simpledsh" },
+  { name: "exit", description: "leave flashcoder" },
+  { name: "quit", description: "leave flashcoder" },
 ]);
 
 const HELP = [
@@ -373,7 +373,7 @@ export class InteractiveSession {
     if (session.state !== "completed") {
       this.#screen.say(
         color.warn(
-          `[${session.sessionId} is ${session.state}; run simpledsh recover ${session.sessionId} first]`,
+          `[${session.sessionId} is ${session.state}; run flashcoder recover ${session.sessionId} first]`,
         ),
       );
       return;
@@ -479,7 +479,7 @@ export class InteractiveSession {
       error instanceof SessionInterruptedError ? error.reason : describe(error);
     this.#screen.say(color.error(`[interrupted: ${reason}]`));
     if (sessionId !== null) {
-      this.#screen.say(color.dim(`  recover with: simpledsh recover ${sessionId}`));
+      this.#screen.say(color.dim(`  recover with: flashcoder recover ${sessionId}`));
     }
   }
 
@@ -487,7 +487,7 @@ export class InteractiveSession {
    * A stream that breaks after the model started producing output cannot be
    * replayed into the same Run — invariant 7 forbids it. Creating a *new* Run
    * from the last safe Commit Boundary is allowed, and is exactly what
-   * `simpledsh recover` does, so do that here instead of dropping the user out.
+   * `flashcoder recover` does, so do that here instead of dropping the user out.
    */
   async #autoRecover(sessionId: SessionId): Promise<void> {
     for (let attempt = 1; attempt <= MAX_AUTO_RESUMES; attempt += 1) {
@@ -523,7 +523,7 @@ export class InteractiveSession {
     }
     this.#screen.say(
       color.warn(
-        `[still failing after ${String(MAX_AUTO_RESUMES)} attempts; run simpledsh recover ${sessionId} when ready]`,
+        `[still failing after ${String(MAX_AUTO_RESUMES)} attempts; run flashcoder recover ${sessionId} when ready]`,
       ),
     );
   }
@@ -757,7 +757,7 @@ export class InteractiveSession {
     } finally {
       this.#screen.stop();
       if (this.#sessionId !== null) {
-        process.stderr.write(`simpledsh: session_id=${this.#sessionId}\n`);
+        process.stderr.write(`flashcoder: session_id=${this.#sessionId}\n`);
       }
     }
   }

@@ -192,7 +192,7 @@ export function banner(
   const fit = Math.min(room, artWidth + INSET * 2);
   const body: string[] = [];
   if (room >= artWidth) body.push(...artwork());
-  else body.push(color.bold("SimpleDSH"));
+  else body.push(color.bold("FlashCoder"));
   body.push(
     "",
     truecolor() ? `${paint(TAGLINE_RGB)}${TAGLINE}${RESET}` : TAGLINE,

@@ -38,7 +38,7 @@ function ids(hex: string) {
 }
 
 async function preparedWorkspace(t: TestContext): Promise<string> {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-repair-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-repair-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
   const opened = await openJournal(workspace, SID, clock(), ids("1"));
   await opened.writer.append({

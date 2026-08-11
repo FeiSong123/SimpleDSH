@@ -696,7 +696,7 @@ async function createTemp(
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const hex = controls?.tempNameHex?.() ?? randomBytes(16).toString("hex");
     if (!validTempHex(hex)) throw new TypeError("temp name source is invalid");
-    const path = join(parent, `.dsh-tmp-${hex}`);
+    const path = join(parent, `.flashcoder-tmp-${hex}`);
     try {
       const handle = await open(
         path,

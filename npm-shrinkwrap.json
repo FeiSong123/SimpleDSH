@@ -1,12 +1,12 @@
 {
-  "name": "simpledsh",
-  "version": "0.1.0-rc.2",
+  "name": "flashcoder",
+  "version": "0.1.0-rc.3",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
-      "name": "simpledsh",
-      "version": "0.1.0-rc.2",
+      "name": "flashcoder",
+      "version": "0.1.0-rc.3",
       "license": "UNLICENSED",
       "dependencies": {
         "get-east-asian-width": "1.6.0",

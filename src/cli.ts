@@ -61,19 +61,19 @@ import { ReconciliationInputError } from "./session/reconcile.js";
 import type { GateSpec } from "./verify/gate.js";
 import type { DeepSeekSemanticFragment } from "./ds/types.js";
 
-const USAGE = `Usage: simpledsh
-       simpledsh run [--effort low|high|max] [--verify <command>]
+const USAGE = `Usage: flashcoder
+       flashcoder run [--effort low|high|max] [--verify <command>]
                [--protect <path>]... [--verify-timeout <sec>] <prompt...>
-       printf '<prompt>' | simpledsh run
-       simpledsh login
-       simpledsh logout
-       simpledsh sessions
-       simpledsh continue [session-id]
-       simpledsh inspect <session-id>
-       simpledsh recover <session-id> [quarantine options]
-       simpledsh reconcile <session-id> <evidence.json> [quarantine options]
+       printf '<prompt>' | flashcoder run
+       flashcoder login
+       flashcoder logout
+       flashcoder sessions
+       flashcoder continue [session-id]
+       flashcoder inspect <session-id>
+       flashcoder recover <session-id> [quarantine options]
+       flashcoder reconcile <session-id> <evidence.json> [quarantine options]
 
-With no arguments simpledsh starts an interactive multi-turn session.
+With no arguments flashcoder starts an interactive multi-turn session.
 
 Verification (run only). The check decides the exit code; its command is never
 shown to the model, only its output when it fails:
@@ -100,7 +100,7 @@ Quarantine options (recover/reconcile only):
 /**
  * A reader that closed early is not a failure.
  *
- * `simpledsh inspect <id> | head` leaves the last write with nowhere to go, and
+ * `flashcoder inspect <id> | head` leaves the last write with nowhere to go, and
  * an EPIPE with no listener is an unhandled 'error' event and a stack trace.
  * Exit on it, but with whatever exit code was already decided: a run that had
  * settled on 4 because its verification failed must not report success just
@@ -395,39 +395,39 @@ async function parseCommand(arguments_: readonly string[]): Promise<CliCommand> 
 
 function classifyFailure(error: unknown): CliFailure {
   if (error instanceof CliInputError) {
-    return Object.freeze({ message: "simpledsh: invalid_invocation\n", exitCode: 2 });
+    return Object.freeze({ message: "flashcoder: invalid_invocation\n", exitCode: 2 });
   }
   if (error instanceof CredentialError) {
     return Object.freeze({
-      message: `simpledsh: credential_${error.code}\n`,
+      message: `flashcoder: credential_${error.code}\n`,
       exitCode: 3,
     });
   }
   if (error instanceof SessionInterruptedError) {
     return Object.freeze({
-      message: `simpledsh: session_interrupted_${error.reason}\n`,
+      message: `flashcoder: session_interrupted_${error.reason}\n`,
       exitCode: error.reason === "cancelled" ? 130 : 4,
     });
   }
   if (error instanceof SessionKernelError) {
     return Object.freeze({
-      message: `simpledsh: session_${error.code}\n`,
+      message: `flashcoder: session_${error.code}\n`,
       exitCode: 5,
     });
   }
   if (error instanceof ReconciliationInputError) {
     return Object.freeze({
-      message: `simpledsh: reconciliation_${error.code}\n`,
+      message: `flashcoder: reconciliation_${error.code}\n`,
       exitCode: 2,
     });
   }
   if (error instanceof JournalError) {
     return Object.freeze({
-      message: `simpledsh: ${error.code.toLowerCase()}\n`,
+      message: `flashcoder: ${error.code.toLowerCase()}\n`,
       exitCode: 5,
     });
   }
-  return Object.freeze({ message: "simpledsh: internal_error\n", exitCode: 1 });
+  return Object.freeze({ message: "flashcoder: internal_error\n", exitCode: 1 });
 }
 
 function percentFromBasisPoints(value: string | null): string {
@@ -506,7 +506,7 @@ class CliRenderer {
 /**
  * Close the progress display, then put the answer on stdout.
  *
- * stdout carries the answer so `simpledsh run <prompt> > answer.txt` gets exactly
+ * stdout carries the answer so `flashcoder run <prompt> > answer.txt` gets exactly
  * that and nothing else. When stdout and stderr are the same terminal the
  * answer already streamed past as it was produced, so printing it a second time
  * is noise rather than output.
@@ -533,7 +533,7 @@ async function quarantineIfRequested(
     ...(options.forceAmbiguous ? { forceAmbiguous: true } : {}),
   });
   process.stderr.write(
-    `simpledsh: writer_lease_quarantined=${quarantined.inspectionFingerprint}\n`,
+    `flashcoder: writer_lease_quarantined=${quarantined.inspectionFingerprint}\n`,
   );
 }
 
@@ -660,8 +660,8 @@ function parseBudgetOptions(
 /**
  * Decide which Session an interactive run attaches to.
  *
- * `dsh` starts a fresh one. `simpledsh continue` reuses a Session whose last Run
- * completed; anything else is left to `simpledsh recover`, which is the only path
+ * `flashcoder` starts a fresh one. `flashcoder continue` reuses a Session whose last Run
+ * completed; anything else is left to `flashcoder recover`, which is the only path
  * allowed to take over a durable pending tail.
  */
 async function resolveInteractiveSession(
@@ -674,12 +674,12 @@ async function resolveInteractiveSession(
       ({ sessionId }) => sessionId === command.sessionId,
     );
     if (summary === undefined) {
-      process.stderr.write("simpledsh: no such session in this workspace\n");
+      process.stderr.write("flashcoder: no such session in this workspace\n");
       throw new CliInputError();
     }
     if (summary.state !== "completed") {
       process.stderr.write(
-        `simpledsh: session is ${summary.state}; run simpledsh recover ${summary.sessionId} first\n`,
+        `flashcoder: session is ${summary.state}; run flashcoder recover ${summary.sessionId} first\n`,
       );
       throw new CliInputError();
     }
@@ -687,7 +687,7 @@ async function resolveInteractiveSession(
   }
   const recent = await mostRecentContinuableSession(workspaceRoot);
   if (recent === null) {
-    process.stderr.write("simpledsh: no continuable session in this workspace\n");
+    process.stderr.write("flashcoder: no continuable session in this workspace\n");
     throw new CliInputError();
   }
   return Object.freeze({ sessionId: recent.sessionId, started: true });
@@ -725,7 +725,7 @@ async function main(): Promise<void> {
     if (command.kind === "login") {
       if (process.stdin.isTTY !== true) {
         process.stderr.write(
-          "simpledsh: login needs a terminal; set DEEPSEEK_API_KEY in the environment instead\n",
+          "flashcoder: login needs a terminal; set DEEPSEEK_API_KEY in the environment instead\n",
         );
         throw new CliInputError();
       }
@@ -743,7 +743,7 @@ async function main(): Promise<void> {
     if (command.kind === "interactive" || command.kind === "continue") {
       if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
         process.stderr.write(
-          "simpledsh: interactive mode needs a terminal; use simpledsh run <prompt> instead\n",
+          "flashcoder: interactive mode needs a terminal; use flashcoder run <prompt> instead\n",
         );
         throw new CliInputError();
       }
@@ -761,7 +761,7 @@ async function main(): Promise<void> {
     }
     if (command.kind === "run") {
       const sessionId = newSessionId();
-      process.stderr.write(`simpledsh: session_id=${sessionId}\n`);
+      process.stderr.write(`flashcoder: session_id=${sessionId}\n`);
       renderer = new CliRenderer();
       const credential = loadDeepSeekCredential({ projectRoot: workspaceRoot });
       const environmentFacts = await captureSessionEnvironment(workspaceRoot);
@@ -785,7 +785,7 @@ async function main(): Promise<void> {
         });
       const onResume = (attempt: number, max: number): void => {
         process.stderr.write(
-          `simpledsh: resuming from the last safe boundary (${String(attempt)}/${String(max)})\n`,
+          `flashcoder: resuming from the last safe boundary (${String(attempt)}/${String(max)})\n`,
         );
       };
       const declared =
@@ -832,7 +832,7 @@ async function main(): Promise<void> {
         continueTurn,
         (attempt, max) =>
           process.stderr.write(
-            `simpledsh: the reply hit the output limit; continuing (${String(attempt)}/${String(max)})\n`,
+            `flashcoder: the reply hit the output limit; continuing (${String(attempt)}/${String(max)})\n`,
           ),
       );
       for (
@@ -843,7 +843,7 @@ async function main(): Promise<void> {
         const failure = declared?.last;
         if (failure === undefined || failure === null) break;
         process.stderr.write(
-          `simpledsh: verification failed; continuing (${String(attempt)}/${String(MAX_VERIFICATION_RETRIES)})\n`,
+          `flashcoder: verification failed; continuing (${String(attempt)}/${String(MAX_VERIFICATION_RETRIES)})\n`,
         );
         result = await withTruncationContinuation(
           await continueTurn(verificationContinuation(failure)),
@@ -851,7 +851,7 @@ async function main(): Promise<void> {
         );
       }
       if (declared !== undefined) {
-        process.stderr.write(`simpledsh: verification=${result.verification}\n`);
+        process.stderr.write(`flashcoder: verification=${result.verification}\n`);
       }
       writeResult(renderer, result.content);
       if (declared !== undefined && result.verification !== "passed") {

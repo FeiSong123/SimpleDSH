@@ -715,7 +715,7 @@ test("native bash has the current user's file authority outside the workspace", 
     t.skip("Windows intentionally has no native bash path");
     return;
   }
-  const markerRoot = await mkdtemp(join(tmpdir(), "simpledsh-user-authority-"));
+  const markerRoot = await mkdtemp(join(tmpdir(), "flashcoder-user-authority-"));
   t.after(async () => {
     await rm(markerRoot, { recursive: true, force: true });
   });

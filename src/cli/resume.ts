@@ -39,7 +39,7 @@ export function isResumable(error: unknown): boolean {
 /**
  * Run a turn, then take over from the last safe boundary if the stream broke.
  *
- * Both the one-shot `simpledsh run` path and interactive mode use this, so a dropped
+ * Both the one-shot `flashcoder run` path and interactive mode use this, so a dropped
  * connection costs a resumed Run rather than the whole task.
  */
 export async function withAutoResume(

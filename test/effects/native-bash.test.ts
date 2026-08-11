@@ -31,12 +31,12 @@ interface CaptureOptions {
 function closedChildEnvironment(cwd: string): BashChildEnvironment {
   return Object.freeze({
     HOME: cwd,
-    HOSTNAME: "simpledsh-test-host",
+    HOSTNAME: "flashcoder-test-host",
     LANG: "C",
     LC_ALL: "C",
-    LOGNAME: "simpledsh-test-user",
+    LOGNAME: "flashcoder-test-user",
     PATH: "/usr/bin:/bin",
-    USER: "simpledsh-test-user",
+    USER: "flashcoder-test-user",
   });
 }
 
@@ -94,7 +94,7 @@ function assertOutputLimitReasonMatchesBytes(result: BashRunResult): void {
 async function withWorkspace<T>(
   action: (workspace: string) => Promise<T>,
 ): Promise<T> {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-native-bash-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-native-bash-"));
   try {
     return await action(workspace);
   } finally {
@@ -418,7 +418,7 @@ test("native Bash adds one literal to seven caller env inputs and drops every ov
 });
 
 test("native Bash reports spawn failure for a missing cwd without a phantom process", NATIVE_TEST_OPTIONS, async () => {
-  const parent = await mkdtemp(join(tmpdir(), "simpledsh-native-bash-missing-"));
+  const parent = await mkdtemp(join(tmpdir(), "flashcoder-native-bash-missing-"));
   const missingCwd = join(parent, "does-not-exist");
   try {
     const captured = await captureRun(missingCwd, "printf 'must-not-run'");

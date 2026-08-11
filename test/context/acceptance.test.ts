@@ -546,7 +546,7 @@ test("Cache Checkpoint and Commit Boundary remain non-interchangeable and an uns
 });
 
 async function acceptanceWriter(t: TestContext): Promise<JournalWriter> {
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-acceptance-journal-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-acceptance-journal-"));
   const handle = await open(join(directory, "log.jsonl"), "ax+", 0o600);
   let ordinal = 0;
   const writer = new JournalWriter({
@@ -582,7 +582,7 @@ test("immutable snapshot lookup returns exact bytes and retry/recovery never re-
   });
   const projection = projectV1(projectionInput(value));
   const sessionDirectory = await mkdtemp(
-    join(tmpdir(), "simpledsh-acceptance-snapshot-"),
+    join(tmpdir(), "flashcoder-acceptance-snapshot-"),
   );
   t.after(() => rm(sessionDirectory, { recursive: true, force: true }));
   const durableStore = await createSnapshotStore(sessionDirectory);

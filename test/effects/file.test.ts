@@ -75,7 +75,7 @@ interface CapturedOutput {
 }
 
 async function fileFixture(t: TestContext): Promise<FileFixture> {
-  const root = await mkdtemp(join(tmpdir(), "simpledsh-file-"));
+  const root = await mkdtemp(join(tmpdir(), "flashcoder-file-"));
   const cwd = join(root, "workspace");
   const storageRoot = join(root, "session");
   const envPath = join(cwd, ".env");
@@ -206,7 +206,7 @@ async function prepareEdit(
 }
 
 async function tempEntries(parent: string): Promise<string[]> {
-  return (await readdir(parent)).filter((name) => name.startsWith(".dsh-tmp-"));
+  return (await readdir(parent)).filter((name) => name.startsWith(".flashcoder-tmp-"));
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -798,7 +798,7 @@ test("fault cleanup refuses false settlement and verifies temp bytes before publ
       tempNameHex: () => tempHex,
       async reach(point) {
         if (point === "after_temp_write") {
-          await writeFile(join(fixture.cwd, `.dsh-tmp-${tempHex}`), "EVIL");
+          await writeFile(join(fixture.cwd, `.flashcoder-tmp-${tempHex}`), "EVIL");
         }
       },
     });

@@ -21,7 +21,7 @@ export function readSecretFromStream(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (input.isTTY !== true) {
-      reject(new Error("simpledsh login needs a terminal"));
+      reject(new Error("flashcoder login needs a terminal"));
       return;
     }
     emit(prompt);
@@ -97,7 +97,7 @@ function toStderr(text: string): void {
 }
 
 function reportToStderr(text: string): void {
-  process.stderr.write(`simpledsh: ${text}`);
+  process.stderr.write(`flashcoder: ${text}`);
 }
 
 /**

@@ -24,11 +24,11 @@ import type {
 } from "../../src/journal/types.js";
 
 async function fixture(t: TestContext, name: string) {
-  const workspace = await mkdtemp(join(tmpdir(), `simpledsh-${name}-`));
+  const workspace = await mkdtemp(join(tmpdir(), `flashcoder-${name}-`));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
   const sessionDir = join(
     workspace,
-    ".dsh",
+    ".flashcoder",
     "sessions",
     `ses_${"1".repeat(32)}`,
   );
@@ -121,7 +121,7 @@ test("credential secret env and Error objects are never captured implicitly", as
   );
 
   const encodedSentinel = Buffer.from(sentinel, "utf8");
-  for (const bytes of await fileContents(join(workspace, ".dsh"))) {
+  for (const bytes of await fileContents(join(workspace, ".flashcoder"))) {
     assert.equal(Buffer.from(bytes).includes(encodedSentinel), false);
   }
 });

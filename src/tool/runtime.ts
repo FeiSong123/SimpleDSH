@@ -200,12 +200,12 @@ export function childEnvironment(home: string): BashChildEnvironment {
   const pathEntries = [...new Set([nodeBin, ...BASE_CHILD_PATH])];
   return Object.freeze({
     HOME: resolve(home),
-    HOSTNAME: "simpledsh",
+    HOSTNAME: "flashcoder",
     LANG: "C",
     LC_ALL: "C",
-    LOGNAME: "dsh",
+    LOGNAME: "flashcoder",
     PATH: pathEntries.join(delimiter),
-    USER: "dsh",
+    USER: "flashcoder",
   });
 }
 

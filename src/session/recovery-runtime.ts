@@ -206,7 +206,7 @@ export async function resumeRecoveryToolV1(input: Readonly<{
     const results = await new ToolRuntime({
       durability,
       cwd: resolve(input.workspaceRoot),
-      storageRoot: input.opened.paths.dshDir,
+      storageRoot: input.opened.paths.storageDir,
       canonicalEnvPath: resolve(input.workspaceRoot, ".env"),
       umask: 0o022,
       toolsProfile: binding.toolsProfile,
