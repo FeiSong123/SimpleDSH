@@ -22,7 +22,13 @@ test("compiled CLI rejects an invalid invocation without starting a Session", ()
   strictEqual(result.signal, null);
   strictEqual(result.status, 2);
   strictEqual(result.stdout, "");
-  strictEqual(result.stderr, "simpledsh: invalid_invocation\n");
+  // Interactive mode needs a terminal; the CLI says so, then fails the
+  // invocation the same way as any other invalid command line.
+  strictEqual(
+    result.stderr,
+    "simpledsh: interactive mode needs a terminal; use simpledsh run <prompt> instead\n" +
+      "simpledsh: invalid_invocation\n",
+  );
 });
 
 test("blocked-stage helper reports the requested stage", () => {
