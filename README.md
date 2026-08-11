@@ -14,7 +14,7 @@ npm registry yet.
 Node 22 or newer, on macOS or Linux.
 
 ```sh
-curl -fsSL https://github.com/Owen718/FlashCoder/releases/download/v0.1.0-rc.3/flashcoder-0.1.0-rc.3.tgz -o flashcoder.tgz
+curl -fsSL https://github.com/Owen718/FlashCoder/releases/download/v0.1.0-rc.4/flashcoder-0.1.0-rc.4.tgz -o flashcoder.tgz
 npm install -g ./flashcoder.tgz
 flashcoder login
 ```

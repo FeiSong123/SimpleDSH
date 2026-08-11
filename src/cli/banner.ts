@@ -10,15 +10,14 @@ import { truncateToWidth, visibleWidth } from "../tui/index.js";
 import { color } from "./theme.js";
 
 const ART = [
-  " ____  _                 _      ____  ____  _   _",
-  "/ ___|(_)_ __ ___  _ __ | | ___|  _ \\/ ___|| | | |",
-  "\\___ \\| | '_ ` _ \\| '_ \\| |/ _ \\ | | \\___ \\| |_| |",
-  " ___) | | | | | | | |_) | |  __/ |_| |___) |  _  |",
-  "|____/|_|_| |_| |_| .__/|_|\\___|____/|____/|_| |_|",
-  "                  |_|",
+  " _____ _             _      ____           _",
+  "|  ___| | __ _  ___ | |__  / ___| ___   __| | ___  _ __",
+  "| |_  | |/ _` |/ __|| '_ \\| |    / _ \\ / _` |/ _ \\| '__|",
+  "|  _| | | (_| |\\__ \\| | | | |___| (_) | (_| |  __/| |",
+  "|_|   |_|\\__,_||___/|_| |_|\\____|\\___/ \\__,_|\\___||_|",
 ] as const;
 
-export const TAGLINE = "Simple Harness for DeepSeek Models";
+export const TAGLINE = "A Coding Agent for DeepSeek Models";
 /**
  * Four claims, worded so the two rows they fold into come out the same length.
  * A ragged pair reads as a wrap; an even pair reads as a deliberate list.
