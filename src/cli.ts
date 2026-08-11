@@ -453,6 +453,22 @@ class CliRenderer {
  * answer already streamed past as it was produced, so printing it a second time
  * is noise rather than output.
  */
+/**
+ * EPIPE guard: when stdout/stderr is piped, the reader may close early (e.g.
+ * `simpledsh ... | head`), turning the final write into an EPIPE that Node
+ * would otherwise surface as an unhandled 'error' event crash. Exit cleanly
+ * instead; any other stream error is still a real failure.
+ */
+function ignorePipeClosure(stream: NodeJS.WriteStream): void {
+  stream.on("error", (err) => {
+    if (err !== null && err !== undefined && err.code === "EPIPE")
+      process.exit(0);
+    throw err;
+  });
+}
+ignorePipeClosure(process.stdout);
+ignorePipeClosure(process.stderr);
+
 function writeResult(renderer: CliRenderer | undefined, content: string): void {
   renderer?.finish();
   if (process.stdout.isTTY === true && process.stderr.isTTY === true) return;
