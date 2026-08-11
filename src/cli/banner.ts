@@ -1,10 +1,13 @@
 /**
  * What the terminal shows before anything has happened.
  *
- * It says what this is and what it believes, and then gets out of the way. No
- * feature list: the first screen of a coding agent should not narrow the thing
- * to whichever mechanism was built most recently.
+ * It says what this is, what it believes, and what this run is pointed at, and
+ * then gets out of the way. No feature list: the first screen of a coding agent
+ * should not narrow the thing to whichever mechanism was built most recently.
  */
+
+import { truncateToWidth, visibleWidth } from "../tui/index.js";
+import { color } from "./theme.js";
 
 const ART = [
   " ____  _                 _      ____  ____  _   _",
@@ -35,6 +38,18 @@ const PHILOSOPHY_RGB = [0x8b, 0x96, 0xa8] as const;
 /** Rows shift the gradient sideways, so the sweep runs on a slight diagonal. */
 const SLANT = 1.8;
 
+/** Space between the box and what it holds, on both sides. */
+const INSET = 3;
+
+/** Under this the box costs more room than it frames. */
+const NARROWEST_BOX = 44;
+
+export interface RunContext {
+  readonly model: string;
+  readonly effort: string;
+  readonly directory: string;
+}
+
 function truecolor(): boolean {
   if (process.env["NO_COLOR"] !== undefined) return false;
   if (process.stdout.isTTY !== true) return false;
@@ -55,7 +70,9 @@ function mix(at: number): readonly [number, number, number] {
   ];
 }
 
-function paint(rgb: readonly [number, number, number] | readonly number[]): string {
+function paint(
+  rgb: readonly [number, number, number] | readonly number[],
+): string {
   return `\u001b[38;2;${String(rgb[0])};${String(rgb[1])};${String(rgb[2])}m`;
 }
 
@@ -69,23 +86,11 @@ const RESET = "\u001b[0m";
  * length, so a short row keeps the colour it would have had — otherwise every
  * line would restart at cyan and the sweep would look like stripes.
  */
-export function banner(columns: number): readonly string[] {
+function artwork(): readonly string[] {
+  if (!truecolor()) return ART;
   const width = Math.max(...ART.map((row) => row.length));
-  if (columns < width + 2) {
-    return Object.freeze([
-      "SimpleDSH",
-      "",
-      TAGLINE,
-      "",
-      ...PHILOSOPHY,
-    ]);
-  }
-  if (!truecolor()) {
-    return Object.freeze([...ART, "", TAGLINE, "", ...PHILOSOPHY]);
-  }
-
   const reach = width + ART.length * SLANT;
-  const art = ART.map((row, y) => {
+  return ART.map((row, y) => {
     let painted = "";
     let last = "";
     for (const [x, character] of [...row].entries()) {
@@ -102,12 +107,71 @@ export function banner(columns: number): readonly string[] {
     }
     return painted.length === 0 ? row : `${painted}${RESET}`;
   });
+}
 
-  return Object.freeze([
-    ...art,
+/** `model      deepseek-v4-flash · effort max`, values in one column. */
+function facts(context: RunContext): readonly string[] {
+  const rows = [
+    ["model", `${context.model} · effort ${context.effort}`],
+    ["directory", context.directory],
+  ] as const;
+  const label = Math.max(...rows.map(([name]) => name.length)) + 2;
+  return rows.map(
+    ([name, value]) => `${color.dim(name.padEnd(label))}${color.tool(value)}`,
+  );
+}
+
+/**
+ * Draw a rounded box around finished lines.
+ *
+ * Contents are measured with `visibleWidth` because every line here is already
+ * painted; counting the escape sequences would push the right edge off screen.
+ * A line wider than the box is cut with an ellipsis: a box with one row hanging
+ * past its own border reads as a rendering fault rather than a long value.
+ */
+function boxed(lines: readonly string[], width: number): readonly string[] {
+  const inner = width - 2;
+  const bar = color.border("│");
+  const rule = (left: string, right: string): string =>
+    color.border(left + "─".repeat(inner) + right);
+  const room = inner - INSET * 2;
+  const row = (line: string): string => {
+    const shown = visibleWidth(line) > room ? truncateToWidth(line, room, "…") : line;
+    const pad = " ".repeat(Math.max(0, room - visibleWidth(shown)));
+    const gap = " ".repeat(INSET);
+    return `${bar}${gap}${shown}${pad}${gap}${bar}`;
+  };
+  return [rule("╭", "╮"), row(""), ...lines.map(row), row(""), rule("╰", "╯")];
+}
+
+/**
+ * The whole opening block, ready to print one line at a time.
+ *
+ * `columns` is the room the block may occupy, not the terminal width — the
+ * caller knows what padding it adds around what it prints.
+ */
+export function banner(
+  columns: number,
+  context: RunContext,
+): readonly string[] {
+  const artWidth = Math.max(...ART.map((row) => row.length));
+  const room = columns - INSET * 2 - 2;
+  const body: string[] = [];
+  if (room >= artWidth) body.push(...artwork());
+  else body.push(color.bold("SimpleDSH"));
+  body.push(
     "",
-    `${paint(TAGLINE_RGB)}${TAGLINE}${RESET}`,
+    truecolor() ? `${paint(TAGLINE_RGB)}${TAGLINE}${RESET}` : TAGLINE,
     "",
-    ...PHILOSOPHY.map((line) => `${paint(PHILOSOPHY_RGB)}${line}${RESET}`),
-  ]);
+    ...PHILOSOPHY.map((line) =>
+      truecolor() ? `${paint(PHILOSOPHY_RGB)}${line}${RESET}` : color.dim(line),
+    ),
+    "",
+    ...facts(context),
+  );
+
+  if (columns < NARROWEST_BOX) {
+    return Object.freeze(body.filter((line) => line !== ""));
+  }
+  return Object.freeze([...boxed(body, columns)]);
 }

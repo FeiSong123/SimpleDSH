@@ -40,7 +40,7 @@ import {
 import type { SlashCommand } from "../tui/index.js";
 import { runLogin, runLogout } from "./login.js";
 import { isResumable, MAX_AUTO_RESUMES, withAutoResume } from "./resume.js";
-import { banner } from "./banner.js";
+import { banner, type RunContext } from "./banner.js";
 import { Screen } from "./screen.js";
 import { withTruncationContinuation } from "./truncation.js";
 import { color, duration, money, tokens } from "./theme.js";
@@ -170,15 +170,24 @@ export class InteractiveSession {
    * footer was blank — so the one moment you most need to know which model and
    * which directory you are about to spend on told you neither.
    */
-  #refreshContext(): void {
+  /** Model, effort and directory, with the home prefix shortened to `~`. */
+  #runContext(): RunContext {
     const home = homedir();
-    const where = this.#workspaceRoot.startsWith(home)
-      ? `~${this.#workspaceRoot.slice(home.length)}`
-      : this.#workspaceRoot;
+    return {
+      model: DEEPSEEK_MODEL,
+      effort: this.#effort ?? DEFAULT_REASONING_EFFORT,
+      directory: this.#workspaceRoot.startsWith(home)
+        ? `~${this.#workspaceRoot.slice(home.length)}`
+        : this.#workspaceRoot,
+    };
+  }
+
+  #refreshContext(): void {
+    const context = this.#runContext();
     this.#screen.setContext(
-      DEEPSEEK_MODEL,
-      `effort ${this.#effort ?? DEFAULT_REASONING_EFFORT}`,
-      where,
+      context.model,
+      `effort ${context.effort}`,
+      context.directory,
     );
   }
 
@@ -630,15 +639,14 @@ export class InteractiveSession {
     // `columns` is 0, not undefined, on a terminal that never reported a size,
     // so `??` is not enough to fall back on.
     this.#screen.blank();
-    for (const line of banner(process.stdout.columns || 80)) {
-      // A Text component of "" occupies no row, so the banner's own separators
-      // have to be asked for as spacers or the blocks come out flush.
+    for (const line of banner(process.stdout.columns || 80, this.#runContext())) {
+      // A Text component of "" occupies no row, so any separator has to be
+      // asked for as a spacer or the blocks come out flush.
       if (line === "") this.#screen.blank();
-      else this.#screen.say(line);
+      else this.#screen.wide(line);
     }
     this.#screen.blank();
     this.#screen.say(color.dim("/help for keys and commands"));
-    this.#screen.blank();
     this.#refreshContext();
     if (this.#sessionId !== null && this.#started) {
       this.#screen.say(color.dim(`continuing ${this.#sessionId}`));

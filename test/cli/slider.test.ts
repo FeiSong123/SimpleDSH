@@ -106,6 +106,17 @@ test("it stops at both ends rather than wrapping", (t) => {
   assert.deepEqual(picked, ["low", "max"]);
 });
 
+test("letting go of an arrow does not move it again", (t) => {
+  // The negotiated Kitty flags report key releases as well as presses, and an
+  // input listener sees them before the TUI filters them out.
+  const { view, terminal, picked } = slider(t);
+  view.openSlider("effort", ["low", "high", "max"], "low");
+  terminal.press("\u001b[1;1C");
+  terminal.press("\u001b[1;1:3C");
+  terminal.press(ENTER);
+  assert.deepEqual(picked, ["high"]);
+});
+
 test("escape chooses nothing", (t) => {
   const { view, terminal, picked } = slider(t);
   view.openSlider("effort", ["low", "high", "max"], "high");

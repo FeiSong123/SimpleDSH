@@ -12,6 +12,7 @@ import {
   TuiMainScreen,
   type Component,
   type SlashCommand,
+  isKeyRelease,
   matchesKey,
   type Terminal,
   type TuiInputListenerResult,
@@ -157,6 +158,17 @@ export class Screen {
   /** One finished line of transcript. */
   say(text: string): void {
     this.#append(new Text(text, 1, 0));
+  }
+
+  /**
+   * A line that spans the terminal edge to edge.
+   *
+   * Transcript lines are inset by a column so they do not crowd the border; a
+   * border is the one thing that has to sit on the edge itself, or the opening
+   * box and the box around the editor come out a column apart.
+   */
+  wide(text: string): void {
+    this.#append(new Text(text, 0, 0));
   }
 
   /**
@@ -374,6 +386,11 @@ export class Screen {
       // the editor, so the line being typed is still there afterwards.
       if (this.#slider !== null) {
         const slider = this.#slider;
+        // The negotiated Kitty flags include event types, so letting go of a
+        // key is reported too and one press arrived as two moves. The TUI
+        // filters releases before the focused component sees them, but an
+        // input listener runs ahead of that and has to do it itself.
+        if (isKeyRelease(data)) return { consume: true };
         // Ask the key parser rather than comparing bytes. The TUI negotiates
         // the Kitty keyboard protocol when the terminal offers it, and then an
         // arrow is not `ESC [ C` at all — matching raw sequences left the
