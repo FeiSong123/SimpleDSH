@@ -31,7 +31,7 @@ import {
 } from "../session/compaction.js";
 import type { SlashCommand } from "../tui/index.js";
 import { runLogin, runLogout } from "./login.js";
-import { isResumable, MAX_AUTO_RESUMES } from "./resume.js";
+import { isResumable, MAX_AUTO_RESUMES, withAutoResume } from "./resume.js";
 import { Screen } from "./screen.js";
 import { withTruncationContinuation } from "./truncation.js";
 import { color, duration, money, tokens } from "./theme.js";
@@ -397,9 +397,7 @@ export class InteractiveSession {
     if (this.#compacting) return;
     this.#compacting = true;
     const before = this.#promptTokens;
-    this.#screen.say(
-      color.dim(`[compacting — ${cause}, ${tokens(before)} in context]`),
-    );
+    this.#screen.say(color.dim(`[compacting — ${cause}]`));
     this.#screen.setCompacting(true);
     try {
       const credential = loadDeepSeekCredential({
@@ -408,15 +406,42 @@ export class InteractiveSession {
       const environmentFacts = await captureSessionEnvironment(
         this.#workspaceRoot,
       );
-      const summary = await continueOfficialSession({
-        workspaceRoot: this.#workspaceRoot,
-        sessionId: this.#sessionId,
-        userInput: COMPACTION_PROMPT,
-        environmentFacts,
-        signal: this.#controller?.signal ?? new AbortController().signal,
-        onStatus: this.#onStatus,
-        credential,
-      });
+      const sessionId = this.#sessionId;
+      const controller = new AbortController();
+      this.#controller = controller;
+      // The same auto-resume the ordinary turns get. A summary request that
+      // dies on a broken stream is exactly the case invariant 7 allows a new
+      // Run for, and without this one transient failure throws away a request
+      // that has already been paid for.
+      const summary = await withAutoResume(
+        () =>
+          continueOfficialSession({
+            workspaceRoot: this.#workspaceRoot,
+            sessionId,
+            userInput: COMPACTION_PROMPT,
+            environmentFacts,
+            signal: controller.signal,
+            onPreview: this.#preview,
+            onStatus: this.#onStatus,
+            credential,
+          }),
+        () =>
+          recoverOfficialSession({
+            workspaceRoot: this.#workspaceRoot,
+            sessionId,
+            signal: controller.signal,
+            onPreview: this.#preview,
+            onStatus: this.#onStatus,
+            loadCredential: () =>
+              loadDeepSeekCredential({ projectRoot: this.#workspaceRoot }),
+          }),
+        (attempt, max) =>
+          this.#screen.say(
+            color.dim(
+              `[summary request failed; retrying (${String(attempt)}/${String(max)})]`,
+            ),
+          ),
+      );
       if (summary.content.trim().length === 0) {
         this.#screen.say(color.warn("[compaction produced no summary; nothing changed]"));
         return;
@@ -425,20 +450,28 @@ export class InteractiveSession {
         workspaceRoot: this.#workspaceRoot,
         sessionId: this.#sessionId,
         summary: summary.content,
-        replacedPromptTokens: before,
+        replacedPromptTokens: Math.max(before, this.#promptTokens),
       });
+      // #promptTokens is refreshed by the summary request itself, so this is
+      // what the model actually saw rather than a reading from a turn ago.
       this.#screen.clearTranscript();
       this.#screen.say(
         color.dim(
-          `compacted · ${tokens(before)} → summary · lineage ${result.toLineageId}`,
+          `compacted · ${tokens(Math.max(before, this.#promptTokens))} → summary · ${result.toLineageId}`,
         ),
       );
       this.#screen.say(summary.content);
       this.#screen.blank();
     } catch (error) {
+      // Nothing was written, so say so: an interrupted summary leaves the
+      // Session exactly as it was, and the next turn is still a cache hit.
       this.#screen.say(color.error(`[compaction failed: ${describe(error)}]`));
+      this.#screen.say(
+        color.dim("  the conversation is unchanged; try /compact again"),
+      );
     } finally {
       this.#screen.setCompacting(false);
+      this.#controller = null;
       this.#compacting = false;
     }
   }
