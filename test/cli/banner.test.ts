@@ -31,8 +31,15 @@ test("the philosophy line folds at its separators, never mid-phrase", () => {
     .map((line) => line.replace(/[│╭╮╰╯─]/gu, "").trim())
     .filter((line) => line.length > 0);
   const folded = shown.filter((line) => PHILOSOPHY.includes(line));
-  assert.ok(folded.length >= 2, `expected a fold: ${folded.join(" / ")}`);
+  assert.equal(folded.length, 2, `expected two rows: ${folded.join(" / ")}`);
   assert.equal(folded.join(" · "), PHILOSOPHY);
+  // The wording is chosen so the two rows come out even. Ragged rows read as a
+  // wrap that got away from someone; even rows read as a list.
+  const [first = "", second = ""] = folded;
+  assert.ok(
+    Math.abs(first.length - second.length) <= 4,
+    `${String(first.length)} against ${String(second.length)} columns`,
+  );
 });
 
 test("the box is as wide as what it holds, not as wide as the terminal", () => {

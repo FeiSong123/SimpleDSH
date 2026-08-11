@@ -19,8 +19,12 @@ const ART = [
 ] as const;
 
 export const TAGLINE = "Simple Harness for DeepSeek Models";
+/**
+ * Four claims, worded so the two rows they fold into come out the same length.
+ * A ragged pair reads as a wrap; an even pair reads as a deliberate list.
+ */
 export const PHILOSOPHY =
-  "DeepSeek-native Design · Cache-first Arch · Durable and resumable Sessions · Simple and Efficient";
+  "DeepSeek-native Design · Cache-first Arch · Durable Sessions · Simple and Efficient";
 
 /** What the philosophy line is broken at when it will not fit on one row. */
 const SEPARATOR = " · ";
