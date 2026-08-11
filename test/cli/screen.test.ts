@@ -229,3 +229,58 @@ test("compacting shows its own spinner, distinct from working", (t) => {
   view.setCompacting(false);
   assert.doesNotMatch(drawn(), /compacting/u);
 });
+
+test("a finished command submits on the first Enter", async (t) => {
+  // The completion list is still open on the exact match just typed, and Enter
+  // belongs to it first. `/compact` then silently did nothing until a second
+  // Enter arrived — which is how a command that costs money looked like a
+  // no-op.
+  const terminal = new FakeTerminal();
+  const view = new Screen({
+    workspaceRoot: process.cwd(),
+    commands: [
+      { name: "compact", description: "replace the conversation with a summary" },
+      { name: "help", description: "keys and commands" },
+    ],
+    terminal,
+  });
+  t.after(() => view.stop());
+  const seen: string[] = [];
+  view.attach({
+    onSubmit: (text) => seen.push(text),
+    onInterrupt: () => {},
+    onExit: () => {},
+  });
+  view.start();
+
+  for (const character of "/compact") terminal.press(character);
+  // Let the autocomplete provider settle, so the list is genuinely open.
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  terminal.press("\r");
+  assert.deepEqual(seen, ["/compact"]);
+});
+
+test("a prefix that names one command still runs it", async (t) => {
+  // The editor already turns Enter on a unique prefix into that command; this
+  // pins the behaviour so the exact-match path above cannot regress it into
+  // two different rules for the same key.
+  const terminal = new FakeTerminal();
+  const view = new Screen({
+    workspaceRoot: process.cwd(),
+    commands: [{ name: "compact", description: "replace the conversation" }],
+    terminal,
+  });
+  t.after(() => view.stop());
+  const seen: string[] = [];
+  view.attach({
+    onSubmit: (text) => seen.push(text),
+    onInterrupt: () => {},
+    onExit: () => {},
+  });
+  view.start();
+
+  for (const character of "/comp") terminal.press(character);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  terminal.press("\r");
+  assert.deepEqual(seen, ["/compact"]);
+});

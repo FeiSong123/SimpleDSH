@@ -18,6 +18,7 @@ import {
 import { color, editorTheme, markdownTheme } from "./theme.js";
 
 const CTRL_C = "\u0003";
+const ENTER = "\r";
 const CTRL_D = "\u0004";
 const ESCAPE = "\u001b";
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
@@ -72,8 +73,10 @@ export class Screen {
   #spinner: NodeJS.Timeout | null = null;
   #spinnerFrame = 0;
   #detachInput: (() => void) | null = null;
+  readonly #commandNames: ReadonlySet<string>;
 
   constructor(options: ScreenOptions) {
+    this.#commandNames = new Set(options.commands.map(({ name }) => `/${name}`));
     // Where the renderer writes its own diagnostics if it ever crashes. Beside
     // the credentials rather than in the workspace, which belongs to the user
     // and is usually under version control.
@@ -259,6 +262,18 @@ export class Screen {
       }
       if (data === CTRL_D && this.#editor.getText().length === 0) {
         handlers.onExit();
+        return { consume: true };
+      }
+      // A finished command should run, not complete to itself. The completion
+      // list is still open on the exact match the user just typed, and Enter
+      // belongs to it first, so `/compact` + Enter silently did nothing until a
+      // second Enter arrived.
+      if (
+        data === ENTER &&
+        this.#editor.isShowingAutocomplete() &&
+        this.#commandNames.has(this.#editor.getText().trim())
+      ) {
+        handlers.onSubmit(this.#editor.getText().trim());
         return { consume: true };
       }
       // Escape stops a turn, but only when the editor is not using it to close
