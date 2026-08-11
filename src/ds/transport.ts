@@ -35,6 +35,13 @@ export type DeepSeekHttpsRequestFunction = (
   callback: (response: IncomingMessage) => void,
 ) => ClientRequest;
 
+/**
+ * The production HTTPS request factory for every official DeepSeek call. The
+ * transport owns the node:https import so the built runtime keeps exactly one
+ * network-import boundary; other provider call sites bind this instead.
+ */
+export const DEEPSEEK_HTTPS_REQUEST: DeepSeekHttpsRequestFunction = httpsRequest;
+
 export interface DeepSeekTimerDriver {
   readonly set: (callback: () => void, delayMs: number) => unknown;
   readonly clear: (handle: unknown) => void;

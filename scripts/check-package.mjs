@@ -186,6 +186,10 @@ const jsonParseAllowlist = new Set([
   "src/bytes/tool-result.ts",
   "src/bytes/view.ts",
   "src/ds/sse.ts",
+  // Provider-visible Responses API parsing for the official web search tool.
+  // Read-only, invariant-shape extraction of the search response, same class
+  // of site as src/ds/sse.ts.
+  "src/ds/web-search.ts",
   "src/journal/recovery.ts",
   "src/journal/schema.ts",
   "src/bytes/tool-arguments.ts",
@@ -437,7 +441,10 @@ if (packed.error !== undefined || packed.status !== 0) {
 } else {
   try {
     const result = JSON.parse(packed.stdout);
-    const paths = result[0]?.files?.map((file) => file.path) ?? [];
+    // npm 12 reports --json as an object keyed by package name; older npm
+    // reported an array. Accept both shapes without weakening the assertions.
+    const entries = Array.isArray(result) ? result : Object.values(result);
+    const paths = entries[0]?.files?.map((file) => file.path) ?? [];
     for (const required of [
       "package.json",
       "dist/src/cli.js",

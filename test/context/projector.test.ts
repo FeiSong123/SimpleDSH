@@ -15,7 +15,10 @@ import {
   buildDeepSeekRequestSnapshot,
   buildDeepSeekRequestSnapshotWithTools,
 } from "../../src/bytes/request.js";
-import { LEGACY_CANONICAL_TOOLS_BYTES } from "../../src/bytes/schemas.js";
+import {
+  CANONICAL_TOOLS_BYTES,
+  LEGACY_CANONICAL_TOOLS_BYTES,
+} from "../../src/bytes/schemas.js";
 import { PREVIOUS_SYSTEM_MESSAGE_BYTES } from "../../src/bytes/system.js";
 import { freezeBytes } from "../../src/bytes/types.js";
 import { materializeUserMessage } from "../../src/bytes/user.js";
@@ -310,10 +313,10 @@ function projectorProductionClosure(): {
 test("projectV1 emits the exact Stage 02 body, boundary head, and segment tuple", () => {
   const value = fixture();
   const result = projectV1(projectorInput(value));
-  const expected = buildDeepSeekRequestSnapshot([
-    value.cacheAbi.systemBlob,
-    value.userBlob,
-  ]);
+  const expected = buildDeepSeekRequestSnapshotWithTools(
+    [value.cacheAbi.systemBlob, value.userBlob],
+    value.cacheAbi.toolsBlob,
+  );
 
   assert.equal(bytesEqual(result.body, expected.body), true);
   assert.equal(result.headEventId, value.boundaryEventId);
@@ -359,7 +362,7 @@ test("legacy fresh projection consumes its loaded v4 tools bytes without upgrade
   assert.equal(
     result.body.byteLength,
     upgraded.body.byteLength -
-      (1_481 - LEGACY_CANONICAL_TOOLS_BYTES.byteLength),
+      (CANONICAL_TOOLS_BYTES.byteLength - LEGACY_CANONICAL_TOOLS_BYTES.byteLength),
   );
 });
 

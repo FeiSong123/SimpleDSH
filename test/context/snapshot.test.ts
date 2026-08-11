@@ -11,7 +11,9 @@ import {
   toBase64,
   utf8Bytes,
 } from "../../src/bytes/ops.js";
-import { buildDeepSeekRequestSnapshot } from "../../src/bytes/request.js";
+import {
+  buildDeepSeekRequestSnapshotWithTools,
+} from "../../src/bytes/request.js";
 import { materializeUserMessage } from "../../src/bytes/user.js";
 import type { FrozenBytes } from "../../src/bytes/types.js";
 import {
@@ -217,10 +219,10 @@ function projectionFixture(): ProjectionFixture {
       sourceEventIds: [user.id],
     },
   });
-  const body = buildDeepSeekRequestSnapshot([
-    cacheAbi.systemBlob,
-    userBlob,
-  ]).body;
+  const body = buildDeepSeekRequestSnapshotWithTools(
+    [cacheAbi.systemBlob, userBlob],
+    cacheAbi.toolsBlob,
+  ).body;
 
   return Object.freeze({
     cacheAbi,

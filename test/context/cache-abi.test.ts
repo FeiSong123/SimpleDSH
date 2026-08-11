@@ -22,6 +22,7 @@ import {
 import {
   CANONICAL_TOOLS_BYTES,
   LEGACY_CANONICAL_TOOLS_BYTES,
+  PREVIOUS_CANONICAL_TOOLS_BYTES,
 } from "../../src/bytes/schemas.js";
 import {
   ACTIVE_SYSTEM_MESSAGE_BYTES,
@@ -94,7 +95,8 @@ test("historical v1 builder remains the exact previous edit-v5 ABI", () => {
   );
   assert.equal(bytesEqual(built.systemBlob, PREVIOUS_SYSTEM_MESSAGE_BYTES), true);
   assert.equal(bytesEqual(built.systemBlob, ACTIVE_SYSTEM_MESSAGE_BYTES), false);
-  assert.equal(bytesEqual(built.toolsBlob, CANONICAL_TOOLS_BYTES), true);
+  assert.equal(bytesEqual(built.toolsBlob, PREVIOUS_CANONICAL_TOOLS_BYTES), true);
+  assert.equal(bytesEqual(built.toolsBlob, CANONICAL_TOOLS_BYTES), false);
   assert.equal(bytesEqual(loaded.manifestBytes, built.manifestBytes), true);
   assert.equal(loaded.cacheAbiId, built.cacheAbiId);
   assert.equal(loaded.headerHash, built.headerHash);
@@ -132,13 +134,15 @@ test("protocol v2 changes only the closed protocol frame for new Sessions", () =
   // to be a signed act rather than a side effect.
   assert.equal(
     v2.cacheAbiId,
-    "sha256:82599244f017a7a752802263f2e5523724dec3c824eeb24e4475f776c08ba132",
+    "sha256:8bb0647289cc9a1d5830511b9f61b4fda5928368f3cb1c14ad07461ba0e17f69",
   );
   assert.equal(v2.projectorVersion, PROJECTOR_VERSION_V1);
   assert.equal(bytesEqual(v2.modelTupleBytes, v1.modelTupleBytes), true);
   assert.equal(bytesEqual(v2.systemBlob, ACTIVE_SYSTEM_MESSAGE_BYTES), true);
   assert.equal(bytesEqual(v2.systemBlob, v1.systemBlob), false);
-  assert.equal(bytesEqual(v2.toolsBlob, v1.toolsBlob), true);
+  assert.equal(bytesEqual(v2.toolsBlob, v1.toolsBlob), false);
+  assert.equal(bytesEqual(v2.toolsBlob, CANONICAL_TOOLS_BYTES), true);
+  assert.equal(bytesEqual(v1.toolsBlob, PREVIOUS_CANONICAL_TOOLS_BYTES), true);
   assert.notEqual(v2.headerHash, v1.headerHash);
   assert.notEqual(v2.manifestBytes.byteLength, v1.manifestBytes.byteLength);
   assert.throws(
@@ -148,10 +152,17 @@ test("protocol v2 changes only the closed protocol frame for new Sessions", () =
 
   const previousV2 = manifestForSystem(
     PREVIOUS_SYSTEM_MESSAGE_BYTES,
-    CANONICAL_TOOLS_BYTES,
+    PREVIOUS_CANONICAL_TOOLS_BYTES,
     PROTOCOL_VERSION_V2,
   );
   assert.doesNotThrow(() => loadCacheAbi(previousV2, idFor(previousV2)));
+
+  const searchV1V2 = manifestForSystem(
+    ACTIVE_SYSTEM_MESSAGE_BYTES,
+    CANONICAL_TOOLS_BYTES,
+    PROTOCOL_VERSION_V2,
+  );
+  assert.doesNotThrow(() => loadCacheAbi(searchV1V2, idFor(searchV1V2)));
 
   const legacyV2 = manifestForSystem(
     CURRENT_SYSTEM_MESSAGE_BYTES,
@@ -283,9 +294,10 @@ test("Unicode project instructions deterministically create a distinct Cache ABI
   );
 });
 
-test("Cache ABI loader admits only the closed five-row compatibility matrix", () => {
+test("Cache ABI loader admits only the closed compatibility matrix", () => {
   const acceptedV1 = [
     manifestForSystem(PREVIOUS_SYSTEM_MESSAGE_BYTES, CANONICAL_TOOLS_BYTES),
+    manifestForSystem(PREVIOUS_SYSTEM_MESSAGE_BYTES, PREVIOUS_CANONICAL_TOOLS_BYTES),
     manifestForSystem(PREVIOUS_SYSTEM_MESSAGE_BYTES),
     manifestForSystem(CURRENT_SYSTEM_MESSAGE_BYTES),
     manifestForSystem(BASE_SYSTEM_MESSAGE_BYTES),
@@ -296,6 +308,7 @@ test("Cache ABI loader admits only the closed five-row compatibility matrix", ()
   const acceptedV2 = [
     manifestForSystem(ACTIVE_SYSTEM_MESSAGE_BYTES, CANONICAL_TOOLS_BYTES, PROTOCOL_VERSION_V2),
     manifestForSystem(PREVIOUS_SYSTEM_MESSAGE_BYTES, CANONICAL_TOOLS_BYTES, PROTOCOL_VERSION_V2),
+    manifestForSystem(PREVIOUS_SYSTEM_MESSAGE_BYTES, PREVIOUS_CANONICAL_TOOLS_BYTES, PROTOCOL_VERSION_V2),
   ];
   for (const manifest of acceptedV2) {
     assert.doesNotThrow(() => loadCacheAbi(manifest, idFor(manifest)));

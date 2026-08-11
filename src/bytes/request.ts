@@ -113,8 +113,8 @@ export const BASE_FROZEN_ZONE_BYTES = concatBytes([
 
 // Changing this value is an explicit Cache ABI change and requires review.
 export const BASE_FROZEN_ZONE_SHA256 =
-  "7f2081d8ff1a2c016e0d00e3546d4a4aac48867242e400e3dcd158fc9c6d9664";
+  "ae28d327fe207a6e0d6bb4fb0aa9dcba995212584dedd0fa15afeaeebb108d1a";
 
 // Request containing only the canonical base system message.
 export const BASE_REQUEST_GOLDEN_SHA256 =
-  "5230bc4d31321e382c9bb69ab4bec48b3a2476f8784a1b24837a3b688e2971ec";
+  "92c0fbdf6724fe8af8036ed736be040e5ec6efcd616ce9c4fad3316acc11519b";

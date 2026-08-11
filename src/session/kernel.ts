@@ -31,6 +31,10 @@ import {
   runDeepSeekOfficialWithRetry,
   type DeepSeekRetryLifecycle,
 } from "../ds/transport.js";
+import {
+  runDeepSeekWebSearch,
+  type DeepSeekWebSearchExecutor,
+} from "../ds/web-search.js";
 import type {
   CompletedDeepSeekResponse,
   DeepSeekSemanticFragment,
@@ -1279,7 +1283,8 @@ async function prepareRecovery(
   input: RecoverySessionBaseInput,
   blobs: BlobStore,
   snapshots: SnapshotStore,
-  returnAtIndeterminate = false,
+  returnAtIndeterminate: boolean,
+  webSearch: DeepSeekWebSearchExecutor,
 ): Promise<RecoveryPreparation> {
   const signal = input.signal ?? new AbortController().signal;
   const acknowledgedSnapshotIds = new Set<string>();
@@ -1396,6 +1401,7 @@ async function prepareRecovery(
             sessionId: input.sessionId,
             lineageId: lineageId!,
             signal,
+            webSearch,
           });
         } catch (error) {
           if (signal.aborted) throw new SessionInterruptedError("cancelled");
@@ -1546,6 +1552,34 @@ async function prepareRecovery(
   }
 }
 
+/**
+ * Binds the official web search endpoint to whatever credential the caller
+ * holds. Fixture and test inputs have neither field; they get a stub that only
+ * ever throws, so a fixture Session that never calls web_search is unaffected
+ * and one that does must supply its own executor through the fixture.
+ */
+function webSearchExecutorForInput(
+  input:
+    | SessionBaseInput
+    | RecoverySessionBaseInput
+    | ReconciliationSessionFixtureInput
+    | OfficialReconciliationInput,
+): DeepSeekWebSearchExecutor {
+  if ("credential" in input) {
+    const credential = (input as OfficialSessionInput).credential;
+    return (query, signal) =>
+      runDeepSeekWebSearch({ credential, ...query, signal });
+  }
+  if ("loadCredential" in input) {
+    const loadCredential = (input as OfficialRecoveryInput).loadCredential;
+    return (query, signal) =>
+      runDeepSeekWebSearch({ credential: loadCredential(), ...query, signal });
+  }
+  return Object.freeze(async () => {
+    throw new Error("web search executor is not bound");
+  });
+}
+
 async function runKernel(
   input:
     | SessionBaseInput
@@ -1587,6 +1621,7 @@ async function runKernel(
     input.eventIds ?? randomEventIdentitySource,
     persistenceControls,
   );
+  const webSearch = webSearchExecutorForInput(input);
   let phase: KernelPhase = "created";
   try {
     const [blobs, snapshots] = await Promise.all([
@@ -1623,6 +1658,7 @@ async function runKernel(
             blobs,
             snapshots,
             true,
+            webSearch,
           );
           if (
             stopped.kind !== "indeterminate" ||
@@ -1644,6 +1680,8 @@ async function runKernel(
         input as RecoverySessionBaseInput,
         blobs,
         snapshots,
+        false,
+        webSearch,
       );
       if (prepared.kind === "completed") {
         observeStatus?.(opened.writer.events);
@@ -2238,6 +2276,7 @@ async function runKernel(
                     acceptanceCall(() => acceptanceBudget.beforeEffect()),
                 },
               }),
+          webSearch,
         }).execute(response.toolCalls, signal);
         // Observation only, after the durable results exist. Failures here are
         // swallowed so a renderer bug cannot end a turn.

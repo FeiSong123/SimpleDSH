@@ -17,13 +17,20 @@ import {
 import { sha256Hex, utf8Bytes } from "../bytes/ops.js";
 import type { ToolCallId } from "../bytes/tool-call-id.js";
 import type { FrozenBytes } from "../bytes/types.js";
-import type { ToolSchemaProfile } from "../bytes/schemas.js";
+import {
+  activeEditProfile,
+  type ToolSchemaProfile,
+} from "../bytes/schemas.js";
 import {
   validateToolCallForProfile,
   type ToolCallValidation,
   type ToolName,
   type ValidatedToolArguments,
 } from "../bytes/tool-arguments.js";
+import type {
+  DeepSeekWebSearchExecutor,
+  DeepSeekWebSearchResponse,
+} from "../ds/web-search.js";
 import type { ToolCall } from "../ds/types.js";
 import type {
   ArtifactId,
@@ -86,6 +93,12 @@ export interface ToolRuntimeOptions {
   readonly effectGate?: Readonly<{ beforeEffect(): void }>;
   readonly toolsProfile: ToolSchemaProfile;
   readonly resultProfile: ToolResultProfile;
+  /**
+   * Executes a model-declared web_search call against the provider's official
+   * search endpoint. Required exactly when the tools profile is search-v1;
+   * older profiles can never validate a web_search call, so they need none.
+   */
+  readonly webSearch?: DeepSeekWebSearchExecutor;
 }
 
 export class ToolRuntimeInterruptedError extends Error {
@@ -272,6 +285,7 @@ export class ToolRuntime {
   readonly #effectGate: Readonly<{ beforeEffect(): void }> | undefined;
   readonly #toolsProfile: ToolSchemaProfile;
   readonly #resultProfile: ToolResultProfile;
+  readonly #webSearch: DeepSeekWebSearchExecutor | undefined;
 
   constructor(options: ToolRuntimeOptions) {
     this.#durability = options.durability;
@@ -288,6 +302,10 @@ export class ToolRuntime {
     this.#effectGate = options.effectGate;
     this.#toolsProfile = options.toolsProfile;
     this.#resultProfile = options.resultProfile;
+    this.#webSearch = options.webSearch;
+    if (options.toolsProfile === "search-v1" && this.#webSearch === undefined) {
+      throw new TypeError("search-v1 tools require a web search executor");
+    }
   }
 
   async execute(
@@ -416,6 +434,9 @@ export class ToolRuntime {
     if (args.name === "bash") {
       return this.#executeBash(validation.toolCallId, call, args, signal);
     }
+    if (args.name === "web_search") {
+      return this.#executeWebSearch(validation.toolCallId, args, signal);
+    }
     return this.#executeMutation(validation.toolCallId, call, args);
   }
 
@@ -543,7 +564,7 @@ export class ToolRuntime {
         args.name,
         failureTerminal(preflight),
         permission.id,
-        this.#toolsProfile === "edit-v5" && "matchCount" in preflight
+        activeEditProfile(this.#toolsProfile) && "matchCount" in preflight
           ? preflight.matchCount
           : undefined,
       );
@@ -693,6 +714,85 @@ export class ToolRuntime {
     );
   }
 
+  /**
+   * Executes a model-declared web_search call through the provider's official
+   * search endpoint. The response JSON is durably recorded as a tool-output
+   * Artifact (like bash), and the tool message carries the projected head/tail
+   * of those bytes. A search that cannot settle is a failed/io_error result
+   * with the failure text in the Artifact, never an indeterminate effect.
+   */
+  async #executeWebSearch(
+    toolCallId: ToolCallId,
+    args: Extract<ValidatedToolArguments, { readonly name: "web_search" }>,
+    signal: AbortSignal,
+  ): Promise<PendingToolResult> {
+    const permission = await this.#durability.permission(toolCallId, "allow");
+    if (signal.aborted) {
+      return this.#durability.interruptRun("cancelled", permission.id);
+    }
+    this.#effectGate?.beforeEffect();
+    const searchLocale =
+      args.value.searchLocale.length === 0 ? undefined : args.value.searchLocale;
+    let outcome: DeepSeekWebSearchResponse | undefined;
+    let failureMessage: string | undefined;
+    try {
+      outcome = await this.#webSearch!(
+        Object.freeze({
+          searchQuery: args.value.searchQuery,
+          ...(searchLocale === undefined ? {} : { searchLocale }),
+        }),
+        signal,
+      );
+    } catch (error) {
+      failureMessage = error instanceof Error
+        ? error.message
+        : "DeepSeek web search failed";
+    }
+    let sink;
+    try {
+      sink = await this.#durability.beginArtifact();
+    } catch {
+      return this.#durability.interruptRun("durability_failure", permission.id);
+    }
+    const writer = createToolOutputFrameWriter(sink);
+    let summary: ToolOutputFrameSummary;
+    try {
+      const payload =
+        failureMessage === undefined
+          ? JSON.stringify(outcome)
+          : failureMessage;
+      await writer.write("stdout", utf8Bytes(payload));
+      summary = await writer.finish();
+    } catch {
+      await sink.abort().catch(() => undefined);
+      return this.#durability.interruptRun("durability_failure", permission.id);
+    }
+    const resultTerminal =
+      failureMessage === undefined
+        ? terminal("succeeded", "ok")
+        : terminal("failed", "io_error");
+    let artifact: PublishedToolArtifact;
+    try {
+      artifact = await this.#durability.publish(
+        toolCallId,
+        sink,
+        summary,
+        null,
+        resultTerminal,
+      );
+    } catch {
+      return this.#durability.interruptRun("durability_failure", permission.id);
+    }
+    return this.#artifactResult(
+      toolCallId,
+      "web_search",
+      artifact,
+      resultTerminal,
+      null,
+      artifact.event.id,
+    );
+  }
+
   async #settleEffectWithEmptyArtifact(
     prepared: PreparedToolEffect,
     toolCallId: ToolCallId,
@@ -751,7 +851,7 @@ export class ToolRuntime {
     let summary: ToolOutputFrameSummary;
     try {
       const isActiveEditMatch =
-        this.#toolsProfile === "edit-v5" &&
+        activeEditProfile(this.#toolsProfile) &&
         toolName === "edit" &&
         (resultTerminal.code === "edit_no_match" ||
           resultTerminal.code === "edit_not_unique");

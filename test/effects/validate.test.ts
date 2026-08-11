@@ -5,6 +5,7 @@ import { sha256Hex } from "../../src/bytes/ops.js";
 import {
   CANONICAL_TOOLS_BYTES,
   LEGACY_CANONICAL_TOOLS_BYTES,
+  PREVIOUS_CANONICAL_TOOLS_BYTES,
   toolSchemaProfileForBytes,
   type ToolSchemaProfile,
 } from "../../src/bytes/schemas.js";
@@ -69,7 +70,8 @@ function providerToolName(value: unknown): string {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     assert.fail("provider tool must be an object");
   }
-  const providerFunction = (value as Record<string, unknown>)["function"];
+  const record = value as Record<string, unknown>;
+  const providerFunction = record["function"];
   if (
     typeof providerFunction !== "object" ||
     providerFunction === null ||
@@ -83,11 +85,16 @@ function providerToolName(value: unknown): string {
 }
 
 test("provider-visible tool schema bytes and sorted validator order stay frozen", () => {
-  assert.deepEqual(toolNames, ["bash", "edit", "read", "write"]);
+  assert.deepEqual(toolNames, ["bash", "edit", "read", "web_search", "write"]);
   assert.equal(Object.isFrozen(toolNames), true);
-  assert.equal(CANONICAL_TOOLS_BYTES.byteLength, 1_481);
+  assert.equal(CANONICAL_TOOLS_BYTES.byteLength, 1_880);
   assert.equal(
     sha256Hex(CANONICAL_TOOLS_BYTES),
+    "815cf370a4250969b811ed91374889be408b14611555b9ff468693914f2c01a8",
+  );
+  assert.equal(PREVIOUS_CANONICAL_TOOLS_BYTES.byteLength, 1_481);
+  assert.equal(
+    sha256Hex(PREVIOUS_CANONICAL_TOOLS_BYTES),
     "9270ce003a52c82ebba5548286cce65f981c2ee1374b15ca07dca0b8e52f11d4",
   );
   assert.equal(LEGACY_CANONICAL_TOOLS_BYTES.byteLength, 1_190);
@@ -95,7 +102,11 @@ test("provider-visible tool schema bytes and sorted validator order stay frozen"
     sha256Hex(LEGACY_CANONICAL_TOOLS_BYTES),
     "2cab77d4184a9839e7c432d160b2edb39a0fdfa69fb8b56754d67c89765fae12",
   );
-  assert.equal(toolSchemaProfileForBytes(CANONICAL_TOOLS_BYTES), "edit-v5");
+  assert.equal(toolSchemaProfileForBytes(CANONICAL_TOOLS_BYTES), "search-v1");
+  assert.equal(
+    toolSchemaProfileForBytes(PREVIOUS_CANONICAL_TOOLS_BYTES),
+    "edit-v5",
+  );
   assert.equal(
     toolSchemaProfileForBytes(LEGACY_CANONICAL_TOOLS_BYTES),
     "edit-v4",
@@ -108,6 +119,9 @@ test("provider-visible tool schema bytes and sorted validator order stay frozen"
 
 test("failure codes distinguish JSON syntax from arguments and unknown tool wins first", () => {
   for (const name of toolNames) {
+    // web_search is profile-gated to search-v1; the edit-v5 default below is
+    // covered by its own test.
+    if (name === "web_search") continue;
     expectFailure(name, "{", "invalid_json");
     const nonObjectCode = name === "edit" ? "wrong_type" : "invalid_arguments";
     expectFailure(name, "null", nonObjectCode);
@@ -400,4 +414,73 @@ test("bash validator closes keys, defaults timeout, and accepts only finite 0 < 
     expectFailure("bash", json({ command: "pwd", timeout }));
   }
   expectFailure("bash", '{"command":"pwd","timeout":1e309}');
+});
+
+test("web_search validator is search-v1 only and closes query and locale", () => {
+  const searchSuccess = (argumentsText: string): ValidatedToolArguments => {
+    const result = validateToolArgumentsForProfile(
+      "web_search",
+      argumentsText,
+      "search-v1",
+    );
+    if (!result.ok) assert.fail(`web_search unexpectedly failed with ${result.code}`);
+    assert.equal(result.arguments.name, "web_search");
+    assert.equal(Object.isFrozen(result), true);
+    assert.equal(Object.isFrozen(result.arguments), true);
+    assert.equal(Object.isFrozen(result.arguments.value), true);
+    return result.arguments;
+  };
+  const searchFailure = (
+    argumentsText: string,
+    code: StaticToolValidationCode = "invalid_arguments",
+  ): void => {
+    const result = validateToolArgumentsForProfile(
+      "web_search",
+      argumentsText,
+      "search-v1",
+    );
+    if (result.ok) assert.fail(`web_search unexpectedly accepted ${argumentsText}`);
+    assert.equal(result.code, code);
+  };
+
+  // Only the active search-v1 tools ABI declares the tool.
+  for (const profile of ["edit-v5", "edit-v4"] as const) {
+    assert.deepEqual(
+      validateToolArgumentsForProfile(
+        "web_search",
+        json({ search_query: "news" }),
+        profile,
+      ),
+      { ok: false, code: "unknown_tool" },
+    );
+  }
+
+  assert.deepEqual(searchSuccess(json({ search_query: "DeepSeek 最新消息" })), {
+    name: "web_search",
+    value: { searchQuery: "DeepSeek 最新消息", searchLocale: "" },
+  });
+  assert.deepEqual(
+    searchSuccess(json({ search_query: "news", search_locale: "zh-CN" })),
+    {
+      name: "web_search",
+      value: { searchQuery: "news", searchLocale: "zh-CN" },
+    },
+  );
+
+  for (const value of [
+    {},
+    { search_locale: "en-US" },
+    { search_query: "news", extra: true },
+    { search_query: "news", search_locale: "en-US", extra: true },
+  ]) {
+    searchFailure(json(value));
+  }
+  for (const query of ["", "a\0b", "\ud800", "\udfff", 1, null, true]) {
+    searchFailure(json({ search_query: query }));
+  }
+  for (const locale of ["", "a\0b", "\ud800", 1, null, true]) {
+    searchFailure(json({ search_query: "news", search_locale: locale }));
+  }
+  searchFailure("{\"search_query\":\"news\"", "invalid_json");
+  searchFailure("null", "invalid_arguments");
 });

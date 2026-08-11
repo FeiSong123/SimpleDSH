@@ -163,7 +163,7 @@ interface PermissionBinding {
 interface EffectBinding extends RunScopedBinding {
   readonly kind: "effect";
   readonly toolCallId: string;
-  readonly toolName: Exclude<ToolName, "read">;
+  readonly toolName: Exclude<ToolName, "read" | "web_search">;
   readonly status:
     | "prepared"
     | "completed"
@@ -322,7 +322,7 @@ export interface RecoveryViewV1 {
     readonly lineageId: string;
     readonly runId: string;
     readonly toolCallId: string;
-    readonly toolName: Exclude<ToolName, "read">;
+    readonly toolName: Exclude<ToolName, "read" | "web_search">;
     readonly status: EffectBinding["status"];
     readonly outputArtifactId: string | null;
     readonly terminalEventId: string | null;
@@ -902,16 +902,18 @@ async function validateToolArtifactBytes(
         (toolName === "read" && stream !== "read") ||
         (toolName === "bash" && stream === "read") ||
         toolName === "write" ||
-        toolName === "edit"
+        toolName === "edit" ||
+        (toolName === "web_search" && stream !== "stdout")
       ) {
         invalidStream = true;
       }
     },
     hardLimit(stream) {
       if (
-        (toolName !== "read" && toolName !== "bash") ||
+        (toolName !== "read" && toolName !== "bash" && toolName !== "web_search") ||
         (toolName === "read" && stream !== "read") ||
-        (toolName === "bash" && stream === "read")
+        (toolName === "bash" && stream === "read") ||
+        (toolName === "web_search" && stream !== "stdout")
       ) {
         invalidStream = true;
       }

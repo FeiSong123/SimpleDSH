@@ -26,7 +26,13 @@ import type {
   RunId,
   SessionId,
 } from "../../src/journal/types.js";
-import { buildCacheAbiV1 } from "../../src/lineage/cache-abi.js";
+import {
+  buildCacheAbiV1,
+  toolResultProfileForCacheAbi,
+  type FrozenCacheAbiManifest,
+} from "../../src/lineage/cache-abi.js";
+import { toolSchemaProfileForBytes } from "../../src/bytes/schemas.js";
+import type { DeepSeekWebSearchExecutor } from "../../src/ds/web-search.js";
 import { createSnapshotStore } from "../../src/snapshot/store.js";
 import { JournalToolDurability } from "../../src/tool/durability.js";
 import { ToolRuntime } from "../../src/tool/runtime.js";
@@ -70,6 +76,8 @@ export interface RuntimeFixtureOptions {
   ) => JournalToolDurability;
   readonly fileMutationControls?: ConstructorParameters<typeof ToolRuntime>[0]["fileMutationControls"];
   readonly toolsProfile?: ToolSchemaProfile;
+  readonly cacheAbi?: FrozenCacheAbiManifest;
+  readonly webSearch?: DeepSeekWebSearchExecutor;
 }
 
 export function runtimeFixtureEventIds(
@@ -135,7 +143,7 @@ export async function createRuntimeFixture(
     sessionId: RUNTIME_FIXTURE_SESSION_ID,
     payload: {},
   });
-  const cacheAbi = buildCacheAbiV1();
+  const cacheAbi = options.cacheAbi ?? buildCacheAbiV1();
   const manifestDescriptor = await opened.artifacts.publishArtifact(
     cacheAbi.manifestBytes,
     {
@@ -370,8 +378,9 @@ export async function createRuntimeFixture(
     storageRoot: opened.paths.dshDir,
     canonicalEnvPath: join(REPO_ROOT, ".env"),
     umask: 0o022,
-    toolsProfile: options.toolsProfile ?? "edit-v5",
-    resultProfile: "verbose-v1",
+    toolsProfile: options.toolsProfile ?? toolSchemaProfileForBytes(cacheAbi.toolsBlob),
+    resultProfile: toolResultProfileForCacheAbi(cacheAbi),
+    ...(options.webSearch === undefined ? {} : { webSearch: options.webSearch }),
     ...(options.fileMutationControls === undefined
       ? {}
       : { fileMutationControls: options.fileMutationControls }),
