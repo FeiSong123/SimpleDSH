@@ -421,7 +421,6 @@ export class InteractiveSession {
             userInput: COMPACTION_PROMPT,
             environmentFacts,
             signal: controller.signal,
-            onPreview: this.#preview,
             onStatus: this.#onStatus,
             credential,
           }),
@@ -430,7 +429,6 @@ export class InteractiveSession {
             workspaceRoot: this.#workspaceRoot,
             sessionId,
             signal: controller.signal,
-            onPreview: this.#preview,
             onStatus: this.#onStatus,
             loadCredential: () =>
               loadDeepSeekCredential({ projectRoot: this.#workspaceRoot }),
@@ -460,7 +458,7 @@ export class InteractiveSession {
           `compacted · ${tokens(Math.max(before, this.#promptTokens))} → summary · ${result.toLineageId}`,
         ),
       );
-      this.#screen.say(summary.content);
+      this.#screen.markdown(summary.content);
       this.#screen.blank();
     } catch (error) {
       // Nothing was written, so say so: an interrupted summary leaves the

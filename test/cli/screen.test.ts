@@ -284,3 +284,16 @@ test("a prefix that names one command still runs it", async (t) => {
   terminal.press("\r");
   assert.deepEqual(seen, ["/compact"]);
 });
+
+test("a finished block of prose is rendered, not printed raw", (t) => {
+  // The summary a compaction produces is the model's own writing and arrives
+  // as one finished string, not as a stream. Printing it with say() put raw
+  // `##` and `**` on screen.
+  const { screen: view, drawn } = screen(t);
+  view.markdown("## Heading\n\n- **bold item**\n");
+  const output = drawn();
+  assert.doesNotMatch(output, /## Heading/u);
+  assert.doesNotMatch(output, /\*\*bold item\*\*/u);
+  assert.match(output, /Heading/u);
+  assert.match(output, /bold item/u);
+});

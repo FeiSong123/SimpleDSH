@@ -132,6 +132,11 @@ export class Screen {
     this.#tui.requestRender(true);
   }
 
+  /** A finished block of the model's own prose, rendered as Markdown. */
+  markdown(text: string): void {
+    this.#append(new Markdown(text, 1, 0, markdownTheme));
+  }
+
   blank(): void {
     this.#append(new Spacer(1));
   }
