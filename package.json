@@ -1,6 +1,6 @@
 {
   "name": "simpledsh",
-  "version": "0.1.0-rc.0",
+  "version": "0.1.0-rc.1",
   "description": "A small, DeepSeek-native agent harness.",
   "private": true,
   "type": "module",

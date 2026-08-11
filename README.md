@@ -14,7 +14,7 @@ npm registry yet.
 Node 22 or newer, on macOS or Linux.
 
 ```sh
-curl -fsSL https://github.com/Owen718/SimpleDSH/releases/download/v0.1.0-rc.0/simpledsh-0.1.0-rc.0.tgz -o simpledsh.tgz
+curl -fsSL https://github.com/Owen718/SimpleDSH/releases/download/v0.1.0-rc.1/simpledsh-0.1.0-rc.1.tgz -o simpledsh.tgz
 npm install -g ./simpledsh.tgz
 simpledsh login
 ```
