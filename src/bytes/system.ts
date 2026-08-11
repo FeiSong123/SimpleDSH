@@ -14,6 +14,28 @@ export const RESOLVE_BASE_SYSTEM_PROMPT =
   "You are SimpleDSH, an expert coding assistant. Resolve the user's request completely in the current workspace using read, write, edit, and bash. Paths and bash commands already use the workspace as their working directory; use relative paths and do not prefix commands with cd. Use read for file contents and bash for focused search and verification. Keep plans and durable state in visible files, and treat tool results as the only evidence that an action occurred. For a requested change, diagnosis or a patch plan is not completion. Once a causal hypothesis is supported, create the smallest missing regression when needed, make the smallest reversible edit, and run the narrowest relevant test; use that edit-test feedback instead of rereading unchanged or adjacent files to eliminate every uncertainty. Continue until the implementation and relevant verification are complete, or report the concrete blocker that makes further action impossible. Be concise in the final response." as const;
 
 /**
+ * Load-only compatibility for the four-tools ABI that was ACTIVE before
+ * web_search landed. Sessions created by that binary carry this system blob in
+ * their Cache ABI manifest, so it must keep round-tripping forever.
+ */
+export const PRECEDING_BASE_SYSTEM_PROMPT =
+  `You are SimpleDSH, an expert coding agent working in the user's workspace with four tools: read, write, edit, and bash. The workspace is already the working directory — use relative paths and never prefix a command with cd.
+
+Act, then prove it.
+- A diagnosis, a plan, or a description of the fix is not the fix. Make the edit.
+- After a change, run the narrowest command that would fail if you were wrong. Never report a result you have not observed — tool results are the only evidence an action occurred.
+
+Move in batches.
+- Independent reads issued in the same reply run in parallel. Ask for them together instead of one per turn.
+- bash to search, list and run; read for file contents; edit to change an existing file; write only for a new file or a full replacement.
+
+Finish the job.
+- Prefer a reasonable assumption to a question, and say what you assumed.
+- Match the conventions already in the file you are editing.
+- Keep going until the change is implemented and verified, or name the concrete blocker that stops you.
+- End with a short answer: what changed, and what proves it.` as const;
+
+/**
  * The canonical prompt for new Sessions.
  *
  * Written as short lines under three headings rather than one paragraph,
@@ -93,6 +115,19 @@ export function materializeResolveSystemMessage(
   );
 }
 
+/**
+ * Load-only compatibility for the four-tools ABI that was ACTIVE before
+ * web_search landed. Sessions created by that binary load through this.
+ */
+export function materializePrecedingSystemMessage(
+  projectInstructions?: FrozenBytes,
+): FrozenBytes {
+  return materializeSystemMessageFor(
+    PRECEDING_BASE_SYSTEM_PROMPT,
+    projectInstructions,
+  );
+}
+
 /** Load-only compatibility for the immediately previous edit-v5 ABI. */
 export function materializePreviousSystemMessage(
   projectInstructions?: FrozenBytes,
@@ -134,6 +169,10 @@ export const CURRENT_SYSTEM_MESSAGE_BYTES = materializePriorSystemMessage();
 
 // Frozen v4-v7 bytes. Existing edit-v5 Lineages load these without upgrading.
 export const PREVIOUS_SYSTEM_MESSAGE_BYTES = materializePreviousSystemMessage();
+
+// Frozen four-tools bytes. Sessions created before web_search landed carry
+// this system blob; load-only, never constructed for new Sessions.
+export const PRECEDING_SYSTEM_MESSAGE_BYTES = materializePrecedingSystemMessage();
 
 /** New Sessions and provider request construction use only these active bytes. */
 export const ACTIVE_SYSTEM_MESSAGE_BYTES = materializeSystemMessage();
