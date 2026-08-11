@@ -37,6 +37,8 @@ export interface ScreenHandlers {
   readonly onSubmit: (text: string) => void;
   /** A level chosen on the slider, or null when it was dismissed. */
   readonly onPick?: (value: string | null) => void;
+  /** A row chosen in the picker by index, or null when it was dismissed. */
+  readonly onChoose?: (index: number | null) => void;
   /** Ctrl-C, or Escape while a turn is running. */
   readonly onInterrupt: () => void;
   /** Ctrl-D on an empty line. */
@@ -123,6 +125,11 @@ export class Screen {
   #spinnerFrame = 0;
   #detachInput: (() => void) | null = null;
   #slider: Readonly<{ label: string; stops: readonly string[]; at: number }> | null = null;
+  #picker: Readonly<{
+    label: string;
+    rows: readonly string[];
+    at: number;
+  }> | null = null;
   readonly #commandNames: ReadonlySet<string>;
 
   constructor(options: ScreenOptions) {
@@ -346,6 +353,47 @@ export class Screen {
     this.#tui.requestRender();
   }
 
+  /**
+   * A vertical list to walk with the arrows.
+   *
+   * It lives in the status row, one row per entry, so it appears above the
+   * editor and takes nothing from the transcript. Whatever was being typed
+   * stays where it was: the picker owns the arrows and Enter only while it is
+   * up.
+   */
+  openPicker(label: string, rows: readonly string[], at = 0): void {
+    this.#picker = Object.freeze({
+      label,
+      rows: Object.freeze([...rows]),
+      at: Math.min(Math.max(0, at), Math.max(0, rows.length - 1)),
+    });
+    this.#drawPicker();
+  }
+
+  closePicker(): void {
+    this.#picker = null;
+    this.#status.setText("");
+    this.#tui.requestRender();
+  }
+
+  #drawPicker(): void {
+    const picker = this.#picker;
+    if (picker === null) return;
+    const drawn = picker.rows.map((row, index) =>
+      index === picker.at
+        ? `${color.tool("▸")} ${color.bold(row)}`
+        : `  ${color.dim(row)}`,
+    );
+    this.#status.setText(
+      [
+        color.dim(picker.label),
+        ...drawn,
+        color.dim("↑/↓ choose · enter resume · esc cancel"),
+      ].join("\n"),
+    );
+    this.#tui.requestRender();
+  }
+
   #drawSlider(): void {
     const slider = this.#slider;
     if (slider === null) return;
@@ -404,6 +452,33 @@ export class Screen {
       // pass through, one press of an arrow moved the slider two stops and one
       // Ctrl-D would have asked to exit twice.
       if (isKeyRelease(data)) return { consume: this.#slider !== null };
+      // While the picker is up it owns the arrows and Enter, the same way the
+      // slider does, so the line being typed survives either of them.
+      if (this.#picker !== null) {
+        const picker = this.#picker;
+        const up = matchesKey(data, "up");
+        if (up || matchesKey(data, "down")) {
+          const at = Math.min(
+            picker.rows.length - 1,
+            Math.max(0, picker.at + (up ? -1 : 1)),
+          );
+          this.#picker = Object.freeze({ ...picker, at });
+          this.#drawPicker();
+          return { consume: true };
+        }
+        if (isEnter(data)) {
+          const at = picker.at;
+          this.closePicker();
+          handlers.onChoose?.(at);
+          return { consume: true };
+        }
+        if (isEscape(data) || isCtrlC(data)) {
+          this.closePicker();
+          handlers.onChoose?.(null);
+          return { consume: true };
+        }
+        return { consume: true };
+      }
       // While the slider is up it owns the arrows and Enter; nothing reaches
       // the editor, so the line being typed is still there afterwards.
       if (this.#slider !== null) {

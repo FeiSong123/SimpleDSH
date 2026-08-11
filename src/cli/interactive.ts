@@ -110,6 +110,8 @@ export class InteractiveSession {
   #exitHintShown = false;
   #promptTokens = 0;
   #compacting = false;
+  /** What the picker is showing, so a chosen row maps back to a Session. */
+  #offered: readonly SessionSummary[] | null = null;
   #effort: ReasoningEffort | null = null;
   readonly #limits: RunBudgetLimits;
   readonly #compactAtTokens: number;
@@ -321,74 +323,78 @@ export class InteractiveSession {
    * that never closed and has to go through `recover` first, which is a
    * different act and says so.
    */
-  async #showSessions(pick?: string): Promise<void> {
+  async #showSessions(): Promise<void> {
     const sessions = await listSessions(this.#workspaceRoot);
-    if (pick !== undefined) {
-      this.#nameSession(sessions, pick);
-      return;
-    }
     if (sessions.length === 0) {
       this.#screen.say(color.dim("no sessions in this workspace"));
       return;
     }
-    // Three columns come off the top: the marker and the padding the screen
-    // puts around every line it prints.
+    if (this.#running) {
+      this.#screen.say(
+        color.warn("[a turn is running; interrupt it before switching sessions]"),
+      );
+      return;
+    }
+    // Four columns come off the top: the marker the picker puts in front of
+    // each row, and the padding the screen puts on both sides of every line.
     const rows = sessionListRows(
       sessions,
       this.#sessionId,
-      (process.stdout.columns || 80) - 3,
+      (process.stdout.columns || 80) - 4,
     );
-    for (const { text, current } of rows) {
-      this.#screen.say(
-        current
-          ? `${color.tool("●")} ${color.bold(text)} ${color.dim("· this session")}`
-          : `  ${color.dim(text)}`,
-      );
-    }
-    const elsewhere = sessions.some(
-      ({ sessionId }) => sessionId !== this.#sessionId,
+    const at = Math.max(
+      0,
+      sessions.findIndex(({ sessionId }) => sessionId === this.#sessionId),
     );
-    if (!elsewhere) return;
-    this.#screen.blank();
-    this.#screen.say(
-      color.dim("/session <number>  for the command that takes one up"),
+    this.#offered = sessions;
+    this.#screen.openPicker(
+      "resume a session",
+      rows.map(({ text }) => text),
+      at,
     );
   }
 
   /**
-   * The id and the command for one numbered row.
+   * Take up the Session chosen in the picker.
    *
-   * Resuming replaces the Session this loop is in, which is a different act
-   * from listing and belongs at the shell rather than three keystrokes from a
-   * turn in flight. So this prints what to run instead of running it.
+   * This replaces the Session the loop is in. Nothing durable is touched: the
+   * Session being left is already closed at its last Commit Boundary, and the
+   * one being taken up continues from its own. What has to be dropped is the
+   * bookkeeping that belonged to the old one — the observed prompt size decides
+   * when compaction fires, and the ledger is a different Session's money.
    */
-  #nameSession(sessions: readonly SessionSummary[], pick: string): void {
-    const at = Number(pick);
-    if (!Number.isInteger(at) || at < 1 || at > sessions.length) {
+  readonly #onChoose = (index: number | null): void => {
+    const offered = this.#offered;
+    this.#offered = null;
+    if (index === null || offered === null) return;
+    const session = offered[index];
+    if (session === undefined) return;
+    if (session.sessionId === this.#sessionId) return;
+    if (session.state !== "completed") {
       this.#screen.say(
         color.warn(
-          `[no session ${pick}; /session lists ${String(sessions.length)}]`,
+          `[${session.sessionId} is ${session.state}; run simpledsh recover ${session.sessionId} first]`,
         ),
       );
       return;
     }
-    const session = sessions[at - 1];
-    if (session === undefined) return;
-    this.#screen.say(color.dim(session.sessionId));
+    this.#sessionId = session.sessionId;
+    this.#started = true;
+    this.#promptTokens = 0;
+    this.#screen.setLedger("");
     this.#screen.say(
-      session.state === "completed"
-        ? color.dim(`simpledsh continue ${session.sessionId}`)
-        : color.dim(`simpledsh recover ${session.sessionId}`),
+      color.dim(
+        `resumed ${session.sessionId} · ${String(session.turns)} turn${session.turns === 1 ? "" : "s"} so far`,
+      ),
     );
-  }
+  };
 
   /**
    * The fixed built-in commands. Everything else typed at the prompt is a
    * message to the model, so these need a prefix that a prompt would not use.
    */
   async #command(text: string): Promise<void> {
-    const [name, ...arguments_] = text.slice(1).split(/\s+/u);
-    const rest = arguments_.join(" ");
+    const [name] = text.slice(1).split(/\s+/u);
     switch (name) {
       case "help":
         this.#screen.say(HELP);
@@ -434,7 +440,7 @@ export class InteractiveSession {
         );
         break;
       case "session":
-        await this.#showSessions(rest.length === 0 ? undefined : rest);
+        await this.#showSessions();
         break;
       case "exit":
       case "quit":
@@ -706,6 +712,7 @@ export class InteractiveSession {
     }
     this.#screen.attach({
       onSubmit: this.#onSubmit,
+      onChoose: this.#onChoose,
       onPick: (value) => {
         void this.#chooseEffort(value);
       },

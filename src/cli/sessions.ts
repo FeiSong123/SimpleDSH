@@ -153,13 +153,12 @@ function when(timestamp: string | null): string {
 /**
  * One unpainted row per Session, trimmed to the room available.
  *
- * Numbered rather than identified: a session id is 36 columns of hex that
- * nobody reads, and what tells two sessions apart is when you were last in one
- * and what you were doing. The number is how you name one back to the harness;
- * the id is still there for `simpledsh continue`, one command away.
- *
- * The title takes whatever room is left and is dropped before the row would
- * wrap; the turn count goes first when even that does not fit.
+ * The id sits on the right, where it is out of the way of the two things you
+ * read a list like this for — when you were last in a Session and what you were
+ * doing in it — but still copyable into `simpledsh continue`. Between them the
+ * subject takes whatever room is left; the turn count is dropped before the
+ * subject is squeezed under twenty columns, and the subject goes before the
+ * number, the date, the state or the id do.
  */
 export function sessionListRows(
   sessions: readonly SessionSummary[],
@@ -167,6 +166,13 @@ export function sessionListRows(
   room: number,
 ): readonly Readonly<{ text: string; current: boolean }>[] {
   const ordinal = Math.max(2, String(sessions.length).length);
+  // number, date and state on the left; the id on the right. What is left over
+  // is shared by the turn count and the subject, each with its own separator.
+  const head = ordinal + 2 + 16 + 2 + 11;
+  const tail = 2 + 36;
+  const free = room - head - tail;
+  const withTurns = free >= 2 + 8 + 2 + 20;
+  const subject = withTurns ? free - 10 - 2 : free - 2;
   return Object.freeze(
     sessions.map((session, index) => {
       const turns = `${String(session.turns)} turn${session.turns === 1 ? "" : "s"}`;
@@ -175,16 +181,17 @@ export function sessionListRows(
         when(session.lastActivityAt),
         session.state.padEnd(11),
       ];
-      const fixed = columns.reduce((total, part) => total + part.length + 2, -2);
-      if (room >= fixed + 2 + 8) columns.push(turns.padEnd(8));
-      const spent = columns.reduce((total, part) => total + part.length + 2, -2);
+      if (withTurns) columns.push(turns.padEnd(8));
       const title = session.title ?? "(no inline prompt)";
-      const left = room - spent - 2;
-      if (left >= 8) {
-        columns.push(title.length > left ? `${title.slice(0, left - 1)}…` : title);
+      if (subject >= 8) {
+        columns.push(
+          (title.length > subject ? `${title.slice(0, subject - 1)}…` : title)
+            .padEnd(subject),
+        );
       }
+      const left = columns.join("  ");
       return Object.freeze({
-        text: columns.join("  "),
+        text: `${left}  ${session.sessionId}`,
         current: session.sessionId === currentSessionId,
       });
     }),

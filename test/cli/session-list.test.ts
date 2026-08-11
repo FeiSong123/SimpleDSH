@@ -5,7 +5,8 @@ import { sessionListRows } from "../../src/cli/sessions.js";
 import type { SessionSummary } from "../../src/cli/sessions.js";
 import type { SessionId } from "../../src/journal/types.js";
 
-const WIDE = 100;
+/** Wide enough for every column; the narrow cases say what gives way. */
+const WIDE = 140;
 /** Local time, so the test pins the shape rather than the reader's timezone. */
 const STAMP = /^ ?\d+ {2}\d{4}-\d{2}-\d{2} \d{2}:\d{2} {2}/u;
 
@@ -24,13 +25,13 @@ function summary(
   }) as SessionSummary;
 }
 
-test("a row is a number, a date and what you were doing", () => {
-  // Not the session id: 36 columns of hex tells two sessions apart in theory
-  // and never in practice. The number is how you name one back.
+test("a row leads with when and what, and ends with the id", () => {
+  // The id is what you copy into `simpledsh continue`, but it is not what you
+  // read the list for, so it goes to the right of both.
   const [row] = sessionListRows([summary("a")], null, WIDE);
   assert.match(row?.text ?? "", STAMP);
-  assert.doesNotMatch(row?.text ?? "", /ses_/u);
-  assert.match(row?.text ?? "", /completed {4}3 turns {3}fix the failing case$/u);
+  assert.match(row?.text ?? "", /completed {4}3 turns {3}fix the failing case/u);
+  assert.match(row?.text ?? "", new RegExp(`ses_a{32}$`, "u"));
 });
 
 test("the rows are numbered from one, in the order given", () => {
@@ -72,15 +73,17 @@ test("a row never outgrows the room it was given", () => {
   const long = summary("a", {
     title: "make the compaction threshold reachable and the flags with it",
   });
-  for (const room of [120, 100, 80, 60, 44, 36]) {
+  for (const room of [140, 120, 100, 86, 74, 60]) {
     const [row] = sessionListRows([long], null, room);
     assert.ok(row !== undefined);
     assert.ok(
-      row.text.length <= Math.max(room, 33),
+      row.text.length <= Math.max(room, 33 + 2 + 36),
       `${String(row.text.length)} columns in room ${String(room)}`,
     );
     assert.match(row.text, STAMP);
     assert.match(row.text, /completed/u);
+    // The id is the point of keeping it: it never gives way.
+    assert.match(row.text, /ses_a{32}$/u);
   }
 });
 
@@ -95,7 +98,7 @@ test("a session with no recorded activity still gets a row", () => {
 
 test("a session with no inline prompt says so", () => {
   const [row] = sessionListRows([summary("a", { title: null })], null, WIDE);
-  assert.match(row?.text ?? "", /\(no inline prompt\)$/u);
+  assert.match(row?.text ?? "", /\(no inline prompt\) +ses_a{32}$/u);
 });
 
 test("one turn is not one turns", () => {
@@ -103,6 +106,7 @@ test("one turn is not one turns", () => {
   const [two] = sessionListRows([summary("b", { turns: 2 })], null, WIDE);
   assert.match(one?.text ?? "", /1 turn {4}/u);
   assert.match(two?.text ?? "", /2 turns {3}/u);
+  assert.match(one?.text ?? "", /ses_a{32}$/u);
 });
 
 test("an interrupted session is listed, and says it is interrupted", () => {

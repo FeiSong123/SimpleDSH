@@ -4,6 +4,8 @@ import test, { type TestContext } from "node:test";
 import { Screen } from "../../src/cli/screen.js";
 import type { Terminal } from "../../src/tui/index.js";
 
+const DOWN = "\u001b[B";
+const UP = "\u001b[A";
 const RIGHT = "\u001b[C";
 const LEFT = "\u001b[D";
 const ESCAPE = "\u001b";
@@ -40,6 +42,76 @@ class FakeTerminal implements Terminal {
     this.#input(data);
   }
 }
+
+function picker(t: TestContext): {
+  view: Screen;
+  terminal: FakeTerminal;
+  chosen: Array<number | null>;
+  sent: string[];
+} {
+  const terminal = new FakeTerminal();
+  const view = new Screen({
+    workspaceRoot: process.cwd(),
+    commands: [],
+    terminal,
+  });
+  t.after(() => view.stop());
+  const chosen: Array<number | null> = [];
+  const sent: string[] = [];
+  view.attach({
+    onSubmit: (text) => sent.push(text),
+    onChoose: (index) => chosen.push(index),
+    onInterrupt: () => {},
+    onExit: () => {},
+  });
+  view.start();
+  return { view, terminal, chosen, sent };
+}
+
+test("the picker walks with the arrows and returns what Enter was on", (t) => {
+  const { view, terminal, chosen } = picker(t);
+  view.openPicker("resume a session", ["one", "two", "three"]);
+  terminal.press(DOWN);
+  terminal.press(DOWN);
+  terminal.press(UP);
+  terminal.press(ENTER);
+  assert.deepEqual(chosen, [1]);
+});
+
+test("the picker stops at both ends rather than wrapping", (t) => {
+  const { view, terminal, chosen } = picker(t);
+  view.openPicker("resume a session", ["one", "two", "three"]);
+  for (let step = 0; step < 6; step += 1) terminal.press(UP);
+  terminal.press(ENTER);
+  view.openPicker("resume a session", ["one", "two", "three"]);
+  for (let step = 0; step < 6; step += 1) terminal.press(DOWN);
+  terminal.press(ENTER);
+  assert.deepEqual(chosen, [0, 2]);
+});
+
+test("the picker opens on the row it was told to", (t) => {
+  const { view, terminal, chosen } = picker(t);
+  view.openPicker("resume a session", ["one", "two", "three"], 2);
+  terminal.press(ENTER);
+  assert.deepEqual(chosen, [2]);
+});
+
+test("escape chooses no session", (t) => {
+  const { view, terminal, chosen } = picker(t);
+  view.openPicker("resume a session", ["one", "two"]);
+  terminal.press(ESCAPE);
+  assert.deepEqual(chosen, [null]);
+});
+
+test("a line in progress survives the picker", (t) => {
+  const { view, terminal, sent } = picker(t);
+  for (const character of "half a thought") terminal.press(character);
+  view.openPicker("resume a session", ["one", "two"]);
+  terminal.press(DOWN);
+  terminal.press(ENTER);
+  assert.equal(view.editorText, "half a thought");
+  assert.deepEqual(sent, []);
+});
 
 function slider(t: TestContext): {
   view: Screen;
