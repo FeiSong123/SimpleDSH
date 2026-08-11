@@ -22,6 +22,19 @@ test("the opening block is a closed box of one width", () => {
   }
 });
 
+test("the philosophy line folds at its separators, never mid-phrase", () => {
+  // At 80 columns it does not fit on one row; breaking anywhere else would
+  // split a phrase and read as an accident.
+  const rows = banner(80, CONTEXT).filter((line) => line.includes("DeepSeek-native"));
+  assert.equal(rows.length, 1, "expected one row to start the line");
+  const shown = banner(80, CONTEXT)
+    .map((line) => line.replace(/[│╭╮╰╯─]/gu, "").trim())
+    .filter((line) => line.length > 0);
+  const folded = shown.filter((line) => PHILOSOPHY.includes(line));
+  assert.ok(folded.length >= 2, `expected a fold: ${folded.join(" / ")}`);
+  assert.equal(folded.join(" · "), PHILOSOPHY);
+});
+
 test("the box is as wide as what it holds, not as wide as the terminal", () => {
   // A frame drawn to column 200 is mostly empty space with a line around it.
   const wide = banner(200, CONTEXT);
@@ -33,7 +46,7 @@ test("the box is as wide as what it holds, not as wide as the terminal", () => {
 test("it says what this is and what the run is pointed at", () => {
   const shown = banner(100, CONTEXT).join("\n");
   assert.ok(shown.includes(TAGLINE));
-  for (const line of PHILOSOPHY) assert.ok(shown.includes(line));
+  for (const part of PHILOSOPHY.split(" · ")) assert.ok(shown.includes(part), part);
   assert.match(shown, /model\s+deepseek-v4-flash · effort max/u);
   assert.match(shown, /directory\s+~\/Downloads\/projects\/SimpleDSH/u);
 });

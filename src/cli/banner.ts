@@ -19,10 +19,11 @@ const ART = [
 ] as const;
 
 export const TAGLINE = "Simple Harness for DeepSeek Models";
-export const PHILOSOPHY = [
-  "Minimal harness. Full model agency.",
-  "Deliberate scope. Efficient execution.",
-] as const;
+export const PHILOSOPHY =
+  "DeepSeek-native Design · Cache-first Arch · Durable and resumable Sessions · Simple and Efficient";
+
+/** What the philosophy line is broken at when it will not fit on one row. */
+const SEPARATOR = " · ";
 
 /** Deep ocean to aurora: cyan, electric blue, violet, magenta. */
 const STOPS = [
@@ -109,6 +110,28 @@ function artwork(): readonly string[] {
   });
 }
 
+/**
+ * The philosophy line, folded onto as few rows as the room allows.
+ *
+ * It breaks only at the separators, so a phrase is never split across rows and
+ * the fold reads as a deliberate list rather than a wrap.
+ */
+function fold(room: number): readonly string[] {
+  const rows: string[] = [];
+  let row = "";
+  for (const part of PHILOSOPHY.split(SEPARATOR)) {
+    const candidate = row === "" ? part : `${row}${SEPARATOR}${part}`;
+    if (row !== "" && candidate.length > room) {
+      rows.push(row);
+      row = part;
+      continue;
+    }
+    row = candidate;
+  }
+  if (row !== "") rows.push(row);
+  return rows;
+}
+
 /** `model      deepseek-v4-flash · effort max`, values in one column. */
 function facts(context: RunContext): readonly string[] {
   const rows = [
@@ -155,7 +178,11 @@ export function banner(
   context: RunContext,
 ): readonly string[] {
   const artWidth = Math.max(...ART.map((row) => row.length));
-  const room = columns - INSET * 2 - 2;
+  const room = Math.max(1, columns - INSET * 2 - 2);
+  // Fold against the wordmark rather than the window: on a wide terminal the
+  // line fits on one row and drags the box out to twice the width of what it
+  // is framing.
+  const fit = Math.min(room, artWidth + INSET * 2);
   const body: string[] = [];
   if (room >= artWidth) body.push(...artwork());
   else body.push(color.bold("SimpleDSH"));
@@ -163,7 +190,7 @@ export function banner(
     "",
     truecolor() ? `${paint(TAGLINE_RGB)}${TAGLINE}${RESET}` : TAGLINE,
     "",
-    ...PHILOSOPHY.map((line) =>
+    ...fold(fit).map((line) =>
       truecolor() ? `${paint(PHILOSOPHY_RGB)}${line}${RESET}` : color.dim(line),
     ),
     "",
