@@ -19,10 +19,12 @@ import {
 import {
   BASE_SYSTEM_PROMPT,
   LEGACY_BASE_SYSTEM_PROMPT,
+  PRECEDING_BASE_SYSTEM_PROMPT,
   PREVIOUS_BASE_SYSTEM_PROMPT,
   PRIOR_BASE_SYSTEM_PROMPT,
   RESOLVE_BASE_SYSTEM_PROMPT,
   materializeLegacySystemMessage,
+  materializePrecedingSystemMessage,
   materializePreviousSystemMessage,
   materializePriorSystemMessage,
   materializeResolveSystemMessage,
@@ -189,6 +191,7 @@ function canonicalSystemBlobFor(
 type SystemPromptProfile =
   | "current"
   | "resolve"
+  | "preceding"
   | "previous"
   | "prior"
   | "legacy";
@@ -227,6 +230,14 @@ function canonicalSystemProfile(
       materializePreviousSystemMessage,
     )
   ) return "previous";
+  if (
+    canonicalSystemBlobFor(
+      systemBlob,
+      content,
+      PRECEDING_BASE_SYSTEM_PROMPT,
+      materializePrecedingSystemMessage,
+    )
+  ) return "preceding";
   if (
     canonicalSystemBlobFor(
       systemBlob,
@@ -367,6 +378,9 @@ function loadCacheAbiForProtocol(
       (systemProfile === "current" ||
         systemProfile === "resolve" ||
         systemProfile === "previous")) ||
+    (protocolVersion === PROTOCOL_VERSION_V2 &&
+      toolsProfile === "edit-v5" &&
+      systemProfile === "preceding") ||
     (protocolVersion === PROTOCOL_VERSION_V1 &&
       (toolsProfile === "search-v1" || toolsProfile === "edit-v5") &&
       systemProfile === "previous") ||
