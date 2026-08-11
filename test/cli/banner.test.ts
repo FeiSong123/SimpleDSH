@@ -22,24 +22,23 @@ test("the opening block is a closed box of one width", () => {
   }
 });
 
-test("the philosophy line folds at its separators, never mid-phrase", () => {
-  // At 80 columns it does not fit on one row; breaking anywhere else would
-  // split a phrase and read as an accident.
-  const rows = banner(80, CONTEXT).filter((line) => line.includes("DeepSeek-native"));
-  assert.equal(rows.length, 1, "expected one row to start the line");
-  const shown = banner(80, CONTEXT)
-    .map((line) => line.replace(/[│╭╮╰╯─]/gu, "").trim())
-    .filter((line) => line.length > 0);
-  const folded = shown.filter((line) => PHILOSOPHY.includes(line));
-  assert.equal(folded.length, 2, `expected two rows: ${folded.join(" / ")}`);
-  assert.equal(folded.join(" · "), PHILOSOPHY);
-  // The wording is chosen so the two rows come out even. Ragged rows read as a
-  // wrap that got away from someone; even rows read as a list.
-  const [first = "", second = ""] = folded;
-  assert.ok(
-    Math.abs(first.length - second.length) <= 4,
-    `${String(first.length)} against ${String(second.length)} columns`,
+test("the claims sit two to a row with their separators in one column", () => {
+  const claims = PHILOSOPHY.split(" · ");
+  const lines = banner(80, CONTEXT);
+  const rows = lines.filter((line) =>
+    claims.some((claim) => line.includes(claim)),
   );
+  assert.equal(rows.length, 2, `expected two rows: ${rows.join(" / ")}`);
+  for (const claim of claims) {
+    assert.ok(
+      rows.some((row) => row.includes(claim)),
+      `${claim} is missing`,
+    );
+  }
+  // The left cell is padded out so the second row's separator lands under the
+  // first one. A ragged pair reads as a line that happened to wrap.
+  const columns = rows.map((row) => row.indexOf("·"));
+  assert.equal(columns[0], columns[1], `separators at ${columns.join(" and ")}`);
 });
 
 test("the box is as wide as what it holds, not as wide as the terminal", () => {

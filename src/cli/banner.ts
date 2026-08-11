@@ -115,25 +115,28 @@ function artwork(): readonly string[] {
 }
 
 /**
- * The philosophy line, folded onto as few rows as the room allows.
+ * The claims laid out two to a row, with the separators in one column.
  *
- * It breaks only at the separators, so a phrase is never split across rows and
- * the fold reads as a deliberate list rather than a wrap.
+ * The left cell is padded out to the widest left cell, so the `·` of the second
+ * row sits under the `·` of the first. Ragged separators read as a line that
+ * happened to wrap; a column of them reads as a table someone meant to build.
+ *
+ * When two claims will not fit side by side, each gets its own row and there is
+ * nothing to line up.
  */
 function fold(room: number): readonly string[] {
-  const rows: string[] = [];
-  let row = "";
-  for (const part of PHILOSOPHY.split(SEPARATOR)) {
-    const candidate = row === "" ? part : `${row}${SEPARATOR}${part}`;
-    if (row !== "" && candidate.length > room) {
-      rows.push(row);
-      row = part;
-      continue;
-    }
-    row = candidate;
+  const claims = PHILOSOPHY.split(SEPARATOR);
+  const pairs: Array<readonly string[]> = [];
+  for (let at = 0; at < claims.length; at += 2) {
+    pairs.push(claims.slice(at, at + 2));
   }
-  if (row !== "") rows.push(row);
-  return rows;
+  const column = Math.max(...pairs.map(([first = ""]) => first.length));
+  const rows = pairs.map(([first = "", second]) =>
+    second === undefined
+      ? first
+      : `${first.padEnd(column)}${SEPARATOR}${second}`,
+  );
+  return rows.some((row) => row.length > room) ? claims : rows;
 }
 
 /** `model      deepseek-v4-flash · effort max`, values in one column. */
