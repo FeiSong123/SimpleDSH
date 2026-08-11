@@ -29,7 +29,7 @@ export type {
   ResolvedFileSubject,
 } from "./file.js";
 export {
-  READ_TOOL_PARALLELISM,
+  OBSERVATION_PARALLELISM,
   ToolRuntime,
   ToolRuntimeInterruptedError,
 } from "./runtime.js";
