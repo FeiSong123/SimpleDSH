@@ -159,6 +159,29 @@ test("Ctrl-C and Ctrl-D reach the loop, and typing reaches the editor", (t) => {
   assert.deepEqual(seen, ["interrupt", "exit", "submit:hi"]);
 });
 
+test("Ctrl-C and Ctrl-D are recognized in every terminal encoding", (t) => {
+  const { screen: view, terminal } = screen(t);
+  const seen: string[] = [];
+  view.attach({
+    onSubmit: () => {},
+    onInterrupt: () => seen.push("interrupt"),
+    onExit: () => seen.push("exit"),
+  });
+  view.start();
+
+  // Kitty CSI-u encodes Ctrl-C / Ctrl-D as key 99 / 100 with modifier 5.
+  terminal.press("\u001b[99;5u");
+  assert.deepEqual(seen, ["interrupt"]);
+  terminal.press("\u001b[100;5u");
+  assert.deepEqual(seen, ["interrupt", "exit"]);
+
+  // xterm modifyOtherKeys encodes them as 27;<mod>;<code>~.
+  terminal.press("\u001b[27;5;99~");
+  assert.deepEqual(seen, ["interrupt", "exit", "interrupt"]);
+  terminal.press("\u001b[27;5;100~");
+  assert.deepEqual(seen, ["interrupt", "exit", "interrupt", "exit"]);
+});
+
 test("the editor keeps a history of what was sent", (t) => {
   const { screen: view, terminal } = screen(t);
   view.attach({

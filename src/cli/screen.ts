@@ -15,12 +15,10 @@ import {
   type Terminal,
   type TuiInputListenerResult,
 } from "../tui/index.js";
+import { matchesKey } from "../tui/keys.js";
 import { color, editorTheme, markdownTheme } from "./theme.js";
 
-const CTRL_C = "\u0003";
 const ENTER = "\r";
-const CTRL_D = "\u0004";
-const ESCAPE = "\u001b";
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const SPINNER_INTERVAL_MS = 90;
 
@@ -261,11 +259,14 @@ export class Screen {
       handlers.onSubmit(text);
     };
     const listener = (data: string): TuiInputListenerResult => {
-      if (data === CTRL_C) {
+      // The terminal may deliver Ctrl-C/Ctrl-D as the raw control character,
+      // a Kitty CSI-u sequence, or an xterm modifyOtherKeys sequence depending
+      // on keyboard-protocol negotiation; match all encodings.
+      if (matchesKey(data, "ctrl+c")) {
         handlers.onInterrupt();
         return { consume: true };
       }
-      if (data === CTRL_D && this.#editor.getText().length === 0) {
+      if (matchesKey(data, "ctrl+d") && this.#editor.getText().length === 0) {
         handlers.onExit();
         return { consume: true };
       }
@@ -284,7 +285,7 @@ export class Screen {
       // Escape stops a turn, but only when the editor is not using it to close
       // its own completion list.
       if (
-        data === ESCAPE &&
+        matchesKey(data, "escape") &&
         this.#activity !== null &&
         !this.#editor.isShowingAutocomplete()
       ) {
