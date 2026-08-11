@@ -22,11 +22,13 @@ import {
   PRECEDING_BASE_SYSTEM_PROMPT,
   PREVIOUS_BASE_SYSTEM_PROMPT,
   PRIOR_BASE_SYSTEM_PROMPT,
+  RELEASED_BASE_SYSTEM_PROMPT,
   RESOLVE_BASE_SYSTEM_PROMPT,
   materializeLegacySystemMessage,
   materializePrecedingSystemMessage,
   materializePreviousSystemMessage,
   materializePriorSystemMessage,
+  materializeReleasedSystemMessage,
   materializeResolveSystemMessage,
   materializeSystemMessage,
 } from "../bytes/system.js";
@@ -190,6 +192,9 @@ function canonicalSystemBlobFor(
 
 type SystemPromptProfile =
   | "current"
+  // Named after the release that froze it rather than another synonym for
+  // "old": the ladder already has preceding, previous and prior.
+  | "released"
   | "resolve"
   | "preceding"
   | "previous"
@@ -214,6 +219,14 @@ function canonicalSystemProfile(
       materializeSystemMessage,
     )
   ) return "current";
+  if (
+    canonicalSystemBlobFor(
+      systemBlob,
+      content,
+      RELEASED_BASE_SYSTEM_PROMPT,
+      materializeReleasedSystemMessage,
+    )
+  ) return "released";
   if (
     canonicalSystemBlobFor(
       systemBlob,
@@ -376,6 +389,7 @@ function loadCacheAbiForProtocol(
     (protocolVersion === PROTOCOL_VERSION_V2 &&
       (toolsProfile === "search-v1" || toolsProfile === "edit-v5") &&
       (systemProfile === "current" ||
+        systemProfile === "released" ||
         systemProfile === "resolve" ||
         systemProfile === "previous")) ||
     (protocolVersion === PROTOCOL_VERSION_V2 &&

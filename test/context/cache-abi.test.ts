@@ -34,10 +34,12 @@ import {
   PREVIOUS_BASE_SYSTEM_PROMPT,
   PREVIOUS_SYSTEM_MESSAGE_BYTES,
   PRIOR_BASE_SYSTEM_PROMPT,
+  RELEASED_BASE_SYSTEM_PROMPT,
   RESOLVE_BASE_SYSTEM_PROMPT,
   materializeLegacySystemMessage,
   materializePreviousSystemMessage,
   materializePriorSystemMessage,
+  materializeReleasedSystemMessage,
   materializeResolveSystemMessage,
 } from "../../src/bytes/system.js";
 import { freezeBytes, type FrozenBytes } from "../../src/bytes/types.js";
@@ -135,7 +137,7 @@ test("protocol v2 changes only the closed protocol frame for new Sessions", () =
   // to be a signed act rather than a side effect.
   assert.equal(
     v2.cacheAbiId,
-    "sha256:8bb0647289cc9a1d5830511b9f61b4fda5928368f3cb1c14ad07461ba0e17f69",
+    "sha256:da7fac2dbbfeb74fea5bc0058aa87f4e89b17aa5fec304f6c35e86007f5b96f6",
   );
   assert.equal(v2.projectorVersion, PROJECTOR_VERSION_V1);
   assert.equal(bytesEqual(v2.modelTupleBytes, v1.modelTupleBytes), true);
@@ -469,4 +471,21 @@ test("a Lineage opened under the retired one-paragraph prompt still loads", () =
   assert.doesNotThrow(() =>
     loadCacheAbi(withInstructions, idFor(withInstructions)),
   );
+});
+
+test("the prompt released as rc.1 still loads under the current one", () => {
+  // Every frozen prompt has to keep round-tripping forever: a session created
+  // by an older binary carries its system blob in the manifest, and losing the
+  // profile turns that session into "no such session".
+  const released = materializeReleasedSystemMessage();
+  const manifest = manifestForSystem(
+    released,
+    CANONICAL_TOOLS_BYTES,
+    PROTOCOL_VERSION_V2,
+  );
+  assert.doesNotThrow(() => loadCacheAbi(manifest, idFor(manifest)));
+  assert.notEqual(RELEASED_BASE_SYSTEM_PROMPT, BASE_SYSTEM_PROMPT);
+  // The line that changed, and the reason this profile exists at all.
+  assert.match(RELEASED_BASE_SYSTEM_PROMPT, /Independent reads issued/u);
+  assert.match(BASE_SYSTEM_PROMPT, /Independent reads and web_searches issued/u);
 });
