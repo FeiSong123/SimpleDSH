@@ -619,6 +619,44 @@ export function projectSessionCostV1(
           unplannedCacheBreaks += 1n;
         }
         break;
+      case "tool_result_committed": {
+        const searchUsage = event.payload.searchUsage;
+        if (searchUsage === undefined || searchUsage === null) break;
+        // A successful web search consumed provider tokens on a separate
+        // Responses API call. Price them into the session and lineage cost;
+        // they are deliberately not added to the usage/cache metrics, which
+        // describe the chat prefix stream.
+        const scope = requireScope(event);
+        const lineage = lineages.get(scope.lineageId);
+        if (lineage === undefined) invalidProjection();
+        const usage: MutableUsage = {
+          promptTokens: BigInt(searchUsage.inputTokens),
+          promptCacheHitTokens: BigInt(searchUsage.promptCacheHitTokens),
+          promptCacheMissTokens: BigInt(
+            searchUsage.inputTokens - searchUsage.promptCacheHitTokens,
+          ),
+          completionTokens: BigInt(searchUsage.outputTokens),
+          reasoningTokens: BigInt(searchUsage.reasoningTokens),
+        };
+        if (
+          usage.promptTokens !==
+            usage.promptCacheHitTokens + usage.promptCacheMissTokens ||
+          usage.reasoningTokens > usage.completionTokens
+        ) {
+          invalidProjection();
+        }
+        const price = selectFlashRegularPriceV1(priceBook, event.at);
+        const priced = price === null ? null : priceUsage(usage, price);
+        if (priced === null) {
+          lineage.costComplete = false;
+          sessionCostComplete = false;
+        } else {
+          lineage.pricedRequestCount += 1n;
+          addCost(lineage.knownCost, priced);
+          addCost(knownSessionCost, priced);
+        }
+        break;
+      }
       case "effect_prepared":
         if (effects.has(event.payload.effectId)) invalidProjection();
         effects.set(event.payload.effectId, "prepared");

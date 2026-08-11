@@ -4,6 +4,7 @@ import { createVerifiedJournalEvent } from "../../src/journal/schema.js";
 import type {
   AnyJournalEventDraft,
   AnyVerifiedJournalEvent,
+  ArtifactId,
   AttemptId,
   CacheAbiId,
   CanonicalTimestamp,
@@ -165,6 +166,53 @@ export function commitAssistant(
           completionTokens: input.completionTokens,
           reasoningTokens: input.reasoningTokens,
           rawFinishReason: input.finishReason ?? "stop",
+        },
+      },
+    },
+    input.at,
+  );
+}
+
+/**
+ * Appends a successful web_search tool result carrying provider usage, the
+ * durable shape the cost projector prices.
+ */
+export function commitSearchResult(
+  builder: CostEventBuilder,
+  input: Readonly<{
+    readonly lineageId: LineageId;
+    readonly runId: RunId;
+    readonly inputTokens: number;
+    readonly hitTokens: number;
+    readonly outputTokens: number;
+    readonly reasoningTokens: number;
+    readonly at?: CanonicalTimestamp;
+  }>,
+): VerifiedJournalEvent<"tool_result_committed"> {
+  const bytes = utf8Bytes("{}");
+  return builder.append(
+    {
+      type: "tool_result_committed",
+      sessionId: SESSION_ID,
+      lineageId: input.lineageId,
+      runId: input.runId,
+      payload: {
+        role: "tool",
+        enc: "b64",
+        bytes: toBase64(bytes),
+        byteCount: bytes.byteLength,
+        byteHash: `sha256:${sha256Hex(bytes)}` as Sha256,
+        blobIndex: 0,
+        chainHash: HASH_A,
+        toolCallId: toolCallId("call_search"),
+        effectId: null,
+        artifactId: objectId<ArtifactId>("art", 30),
+        sourceEventId: objectId<EventId>("evt", 99),
+        searchUsage: {
+          inputTokens: input.inputTokens,
+          promptCacheHitTokens: input.hitTokens,
+          outputTokens: input.outputTokens,
+          reasoningTokens: input.reasoningTokens,
         },
       },
     },

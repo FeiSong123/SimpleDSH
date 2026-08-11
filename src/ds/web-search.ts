@@ -38,6 +38,7 @@ export interface DeepSeekWebSearchInput {
 
 export interface DeepSeekWebSearchUsage {
   readonly inputTokens: number;
+  readonly promptCacheHitTokens: number;
   readonly outputTokens: number;
   readonly reasoningTokens: number;
 }
@@ -213,13 +214,30 @@ function parseWebSearchResponse(raw: string): DeepSeekWebSearchResponse {
   if (!isRecord(rawUsage)) {
     searchProtocolFailure("usage must be an object");
   }
+  const inputTokens = nonNegativeIntegerField(rawUsage, "input_tokens");
+  const outputTokens = nonNegativeIntegerField(rawUsage, "output_tokens");
+  const rawInputDetails = rawUsage["input_tokens_details"];
+  const promptCacheHitTokens = isRecord(rawInputDetails)
+    ? nonNegativeIntegerField(rawInputDetails, "cached_tokens")
+    : 0;
+  if (promptCacheHitTokens > inputTokens) {
+    searchProtocolFailure(
+      "cached_tokens must not exceed input_tokens",
+    );
+  }
   const rawDetails = rawUsage["output_tokens_details"];
   const reasoningTokens = isRecord(rawDetails)
     ? nonNegativeIntegerField(rawDetails, "reasoning_tokens")
     : 0;
+  if (reasoningTokens > outputTokens) {
+    searchProtocolFailure(
+      "reasoning_tokens must not exceed output_tokens",
+    );
+  }
   const usage = Object.freeze({
-    inputTokens: nonNegativeIntegerField(rawUsage, "input_tokens"),
-    outputTokens: nonNegativeIntegerField(rawUsage, "output_tokens"),
+    inputTokens,
+    promptCacheHitTokens,
+    outputTokens,
     reasoningTokens,
   });
   return Object.freeze({

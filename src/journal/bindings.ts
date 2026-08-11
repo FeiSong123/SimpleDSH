@@ -2286,6 +2286,18 @@ async function applyEvent(
           referenceFailure();
         }
       }
+      // Search usage is durable only on a successful web_search observation;
+      // every other tool and every failed search must leave it absent.
+      const searchUsagePresent =
+        event.payload.searchUsage !== undefined &&
+        event.payload.searchUsage !== null;
+      const searchUsageExpected =
+        toolCall.name === "web_search" &&
+        resultTerminal !== undefined &&
+        resultTerminal.code === "ok";
+      if (searchUsagePresent !== searchUsageExpected) {
+        referenceFailure();
+      }
       const bytes = await applyBlob(state, event.lineageId, event.payload, verifier);
       try {
         if (bytes.byteLength > TOOL_RESULT_PROJECTION_LIMIT_BYTES) {

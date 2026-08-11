@@ -65,6 +65,7 @@ export type {
   Sha256,
   SnapshotRef,
   ToolCallId,
+  ToolResultSearchUsage,
   VerifiedJournalEvent,
 } from "./types.js";
 export type { CommitClosureStateV1 } from "./closure.js";

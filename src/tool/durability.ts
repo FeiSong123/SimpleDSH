@@ -23,6 +23,7 @@ import {
   type RunId,
   type SessionId,
   type Sha256,
+  type ToolResultSearchUsage,
 } from "../journal/index.js";
 import type { JournalWriter } from "../journal/writer.js";
 import type {
@@ -349,6 +350,7 @@ export class JournalToolDurability implements ActiveArtifactBindings {
     readonly artifactId: ArtifactId | null;
     readonly sourceEventId: EventId;
     readonly messageBytes: FrozenBytes;
+    readonly searchUsage?: ToolResultSearchUsage | null;
   }): Promise<Extract<AnyVerifiedJournalEvent, { readonly type: "tool_result_committed" }>> {
     try {
       const payload = await this.#blobs.publish(
@@ -366,6 +368,9 @@ export class JournalToolDurability implements ActiveArtifactBindings {
             effectId: input.effectId,
             artifactId: input.artifactId,
             sourceEventId: input.sourceEventId,
+            ...(input.searchUsage === undefined
+              ? {}
+              : { searchUsage: input.searchUsage }),
           },
         }),
         "tool_result_committed",

@@ -201,6 +201,7 @@ test("web search posts the query to the official Responses API with the web_sear
   ]);
   assert.deepEqual(result.usage, {
     inputTokens: 2902,
+    promptCacheHitTokens: 512,
     outputTokens: 378,
     reasoningTokens: 97,
   });
@@ -248,6 +249,24 @@ test("web search rejects malformed or invalid response bodies", async () => {
       usage: { input_tokens: 0, output_tokens: 0 },
     }),
     JSON.stringify({ id: "x", output: [], usage: { input_tokens: -1, output_tokens: 0 } }),
+    JSON.stringify({
+      id: "x",
+      output: [],
+      usage: {
+        input_tokens: 10,
+        input_tokens_details: { cached_tokens: 11 },
+        output_tokens: 0,
+      },
+    }),
+    JSON.stringify({
+      id: "x",
+      output: [],
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        output_tokens_details: { reasoning_tokens: 6 },
+      },
+    }),
   ];
   for (const body of cases) {
     await assert.rejects(

@@ -33,6 +33,7 @@ import type {
   SessionId,
   Sha256,
   SnapshotRef,
+  ToolResultSearchUsage,
 } from "./types.js";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -184,6 +185,33 @@ function nullable<T>(value: unknown, parse: (input: unknown) => T): T | null {
   return value === null ? null : parse(value);
 }
 
+function searchUsage(value: unknown): ToolResultSearchUsage | null {
+  if (value === null) return null;
+  const parsed = record(value);
+  exactKeys(parsed, [
+    "inputTokens",
+    "promptCacheHitTokens",
+    "outputTokens",
+    "reasoningTokens",
+  ]);
+  const inputTokens = nonNegative(parsed["inputTokens"]);
+  const promptCacheHitTokens = nonNegative(parsed["promptCacheHitTokens"]);
+  const outputTokens = nonNegative(parsed["outputTokens"]);
+  const reasoningTokens = nonNegative(parsed["reasoningTokens"]);
+  if (
+    promptCacheHitTokens > inputTokens ||
+    reasoningTokens > outputTokens
+  ) {
+    fail();
+  }
+  return {
+    inputTokens,
+    promptCacheHitTokens,
+    outputTokens,
+    reasoningTokens,
+  };
+}
+
 function toolCallId(value: unknown): ReturnType<typeof asToolCallId> {
   try {
     return asToolCallId(value);
@@ -315,15 +343,21 @@ function blobPayload<Role extends "user" | "assistant" | "tool">(
   value: UnknownRecord,
   role: Role,
   trailingKeys: readonly string[],
+  optionalTrailingKeys: readonly string[] = [],
 ): BlobPayload<Role> {
   if (value["role"] !== role) fail();
   const enc = enumValue(value["enc"], ["b64", "ref"] as const);
   const commonTail = ["byteCount", "byteHash", "blobIndex", "chainHash"];
+  // Optional trailing keys are admitted only when actually present; the
+  // payload must otherwise remain the closed set.
+  const presentOptional = optionalTrailingKeys.filter((key) =>
+    Object.prototype.hasOwnProperty.call(value, key),
+  );
   exactKeys(
     value,
     enc === "b64"
-      ? ["role", "enc", "bytes", ...commonTail, ...trailingKeys]
-      : ["role", "enc", "blobRef", ...commonTail, ...trailingKeys],
+      ? ["role", "enc", "bytes", ...commonTail, ...trailingKeys, ...presentOptional]
+      : ["role", "enc", "blobRef", ...commonTail, ...trailingKeys, ...presentOptional],
   );
   const byteCount = nonNegative(value["byteCount"]);
   const byteHash = asSha256(value["byteHash"]);
@@ -934,18 +968,21 @@ function normalizePayload(type: JournalEventType, input: unknown): unknown {
       };
     }
     case "tool_result_committed": {
-      const blob = blobPayload(value, "tool", [
-        "toolCallId",
-        "effectId",
-        "artifactId",
-        "sourceEventId",
-      ]);
+      const blob = blobPayload(
+        value,
+        "tool",
+        ["toolCallId", "effectId", "artifactId", "sourceEventId"],
+        ["searchUsage"],
+      );
       return {
         ...blob,
         toolCallId: toolCallId(value["toolCallId"]),
         effectId: nullable(value["effectId"], (item) => typedId(item, "effect")),
         artifactId: nullable(value["artifactId"], (item) => typedId(item, "artifact")),
         sourceEventId: asEventId(value["sourceEventId"]),
+        ...(Object.prototype.hasOwnProperty.call(value, "searchUsage")
+          ? { searchUsage: searchUsage(value["searchUsage"]) }
+          : {}),
       };
     }
     case "run_completed": {

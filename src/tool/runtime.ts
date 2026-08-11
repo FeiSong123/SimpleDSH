@@ -37,6 +37,7 @@ import type {
   EffectId,
   EventId,
   Sha256,
+  ToolResultSearchUsage,
 } from "../journal/index.js";
 import {
   BashProcessStateUnknownError,
@@ -75,6 +76,7 @@ interface PendingToolResult {
   readonly artifactId: ArtifactId | null;
   readonly sourceEventId: EventId;
   readonly messageBytes: FrozenBytes;
+  readonly searchUsage?: ToolResultSearchUsage | null;
 }
 
 export interface CommittedToolResult {
@@ -403,7 +405,16 @@ export class ToolRuntime {
   }
 
   async #commit(pending: PendingToolResult): Promise<CommittedToolResult> {
-    const event = await this.#durability.commitResult(pending);
+    const event = await this.#durability.commitResult({
+      toolCallId: pending.toolCallId,
+      effectId: pending.effectId,
+      artifactId: pending.artifactId,
+      sourceEventId: pending.sourceEventId,
+      messageBytes: pending.messageBytes,
+      ...(pending.searchUsage === undefined
+        ? {}
+        : { searchUsage: pending.searchUsage }),
+    });
     return Object.freeze({
       toolCallId: pending.toolCallId,
       messageBytes: pending.messageBytes,
@@ -790,6 +801,15 @@ export class ToolRuntime {
       resultTerminal,
       null,
       artifact.event.id,
+      undefined,
+      failureMessage === undefined
+        ? {
+            inputTokens: outcome!.usage.inputTokens,
+            promptCacheHitTokens: outcome!.usage.promptCacheHitTokens,
+            outputTokens: outcome!.usage.outputTokens,
+            reasoningTokens: outcome!.usage.reasoningTokens,
+          }
+        : undefined,
     );
   }
 
@@ -917,6 +937,7 @@ export class ToolRuntime {
     effectId: EffectId | null,
     sourceEventId: EventId,
     readOffset?: number,
+    searchUsage?: ToolResultSearchUsage,
   ): Promise<PendingToolResult> {
     const payloadBytes = artifact.descriptor.streamBytes;
     const hardLimitReached = artifact.descriptor.hardLimitReached;
@@ -979,6 +1000,7 @@ export class ToolRuntime {
         artifactId: artifact.artifactId,
         sourceEventId,
         messageBytes: projected.messageBytes,
+        ...(searchUsage === undefined ? {} : { searchUsage }),
       });
     } catch (error) {
       if (error instanceof ToolResultProjectionError) {

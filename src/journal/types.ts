@@ -77,6 +77,18 @@ export interface ArtifactStreamBytes {
   readonly stderr: number;
 }
 
+/**
+ * Provider usage of one successful web search round. Mirrors the dimensions
+ * the chat transport prices so the cost projector can price it with the same
+ * price book; it is never part of the chat prefix or cache metrics.
+ */
+export interface ToolResultSearchUsage {
+  readonly inputTokens: number;
+  readonly promptCacheHitTokens: number;
+  readonly outputTokens: number;
+  readonly reasoningTokens: number;
+}
+
 export type ArtifactType =
   | "cache_abi_manifest"
   | "project_instructions"
@@ -323,6 +335,11 @@ export interface JournalPayloadByType {
     readonly effectId: EffectId | null;
     readonly artifactId: ArtifactId | null;
     readonly sourceEventId: EventId;
+    /**
+     * Provider usage for a successful web_search tool result, used by the cost
+     * projector. Absent for every other tool and for failed searches.
+     */
+    readonly searchUsage?: ToolResultSearchUsage | null;
   };
   readonly run_completed: {
     readonly commitBoundaryId: CommitBoundaryId;

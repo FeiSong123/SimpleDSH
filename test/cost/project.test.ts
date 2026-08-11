@@ -28,6 +28,7 @@ import {
   SNAPSHOT_A,
   SNAPSHOT_B,
   commitAssistant,
+  commitSearchResult,
   effectId,
   objectId,
   startAttempt,
@@ -386,4 +387,95 @@ test("BigInt arithmetic stays exact beyond Number safe multiplication", async ()
   assert.doesNotThrow(() => JSON.stringify(report));
   assert.equal(formatUsdPicodollarsExact(0n), "0.000000000000");
   assert.throws(() => formatUsdPicodollarsExact(-1n), TypeError);
+});
+
+test("cost projection prices web search usage into the session and lineage cost", async () => {
+  const builder = new CostEventBuilder();
+  builder.append({ type: "session_started", sessionId: SESSION_ID, payload: {} });
+  startLineage(builder, LINEAGE_A, RUN_A);
+  startAttempt(builder, {
+    lineageId: LINEAGE_A,
+    runId: RUN_A,
+    attemptId: ATTEMPT_A,
+    requestSnapshotId: SNAPSHOT_A,
+  });
+  // A chat turn whose assistant committed usage:
+  // 10 hit + 5 miss + 3 completion = 1_568_000 picodollars.
+  commitAssistant(builder, {
+    lineageId: LINEAGE_A,
+    runId: RUN_A,
+    attemptId: ATTEMPT_A,
+    requestSnapshotId: SNAPSHOT_A,
+    responseModel: "resolved-z",
+    promptTokens: 15,
+    hitTokens: 10,
+    missTokens: 5,
+    completionTokens: 3,
+    reasoningTokens: 2,
+  });
+  // A web search round: 700 hit + 300 miss + 200 output = 99_960_000.
+  commitSearchResult(builder, {
+    lineageId: LINEAGE_A,
+    runId: RUN_A,
+    inputTokens: 1_000,
+    hitTokens: 700,
+    outputTokens: 200,
+    reasoningTokens: 50,
+  });
+
+  const report = projectSessionCostV1(SESSION_ID, builder.events(), await priceBook());
+
+  assert.equal(report.knownSessionCost.cacheHit.picodollars, "1988000");
+  assert.equal(report.knownSessionCost.cacheMiss.picodollars, "42700000");
+  assert.equal(report.knownSessionCost.output.picodollars, "56840000");
+  assert.equal(report.knownSessionCost.total.picodollars, "101528000");
+  assert.equal(report.knownSessionCost.total.usd, "0.000101528000");
+  // Search usage is cost-only: it must not leak into the chat-stream usage
+  // metrics or the reasoning share.
+  assert.deepEqual(report.sessionReasoningShare, {
+    numerator: "2",
+    denominator: "3",
+    basisPoints: "6667",
+  });
+  assert.equal(report.lineages[0]?.knownCost.total.picodollars, "101528000");
+  assert.equal(report.costCompleteness, "complete");
+});
+
+test("web search usage predating the price book keeps the session cost a lower bound", async () => {
+  const builder = new CostEventBuilder();
+  builder.append({ type: "session_started", sessionId: SESSION_ID, payload: {} });
+  startLineage(builder, LINEAGE_A, RUN_A);
+  startAttempt(builder, {
+    lineageId: LINEAGE_A,
+    runId: RUN_A,
+    attemptId: ATTEMPT_A,
+    requestSnapshotId: SNAPSHOT_A,
+  });
+  commitAssistant(builder, {
+    lineageId: LINEAGE_A,
+    runId: RUN_A,
+    attemptId: ATTEMPT_A,
+    requestSnapshotId: SNAPSHOT_A,
+    responseModel: "resolved-z",
+    promptTokens: 15,
+    hitTokens: 10,
+    missTokens: 5,
+    completionTokens: 3,
+    reasoningTokens: 2,
+  });
+  // Before the price book's observed_from date: search tokens cannot be priced.
+  commitSearchResult(builder, {
+    lineageId: LINEAGE_A,
+    runId: RUN_A,
+    inputTokens: 1_000,
+    hitTokens: 700,
+    outputTokens: 200,
+    reasoningTokens: 50,
+    at: "2026-08-02T00:00:00.000Z" as CanonicalTimestamp,
+  });
+
+  const report = projectSessionCostV1(SESSION_ID, builder.events(), await priceBook());
+  assert.equal(report.knownSessionCost.total.picodollars, "1568000");
+  assert.equal(report.costCompleteness, "lower_bound");
+  assert.equal(report.lineages[0]?.costCompleteness, "lower_bound");
 });

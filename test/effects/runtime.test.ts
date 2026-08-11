@@ -987,6 +987,7 @@ function webSearchFixtureResponse(
     openedUrls: Object.freeze(["https://example.com/story"]),
     usage: Object.freeze({
       inputTokens: 100,
+      promptCacheHitTokens: 70,
       outputTokens: 40,
       reasoningTokens: 10,
     }),
