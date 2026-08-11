@@ -153,3 +153,62 @@ test("a narrow terminal gives up the path rather than wrapping", (t) => {
   assert.doesNotMatch(text, /Downloads/u);
   assert.match(text, /cache 83\.90%/u);
 });
+
+function keys(t: TestContext): {
+  terminal: FakeTerminal;
+  exits: number;
+  interrupts: number;
+  count: () => { exits: number; interrupts: number };
+} {
+  const terminal = new FakeTerminal();
+  const view = new Screen({
+    workspaceRoot: process.cwd(),
+    commands: [],
+    terminal,
+  });
+  t.after(() => view.stop());
+  let exits = 0;
+  let interrupts = 0;
+  view.attach({
+    onSubmit: () => {},
+    onPick: () => {},
+    onInterrupt: () => {
+      interrupts += 1;
+    },
+    onExit: () => {
+      exits += 1;
+    },
+  });
+  view.start();
+  return { terminal, exits, interrupts, count: () => ({ exits, interrupts }) };
+}
+
+test("Ctrl-D exits in either encoding", (t) => {
+  // With the Kitty protocol negotiated the terminal sends `ESC [ 100 ; 5 u`
+  // rather than the control byte, and comparing bytes meant Ctrl-D did nothing.
+  const legacy = keys(t);
+  legacy.terminal.press("\u0004");
+  assert.equal(legacy.count().exits, 1);
+
+  const kitty = keys(t);
+  kitty.terminal.press("\u001b[100;5u");
+  assert.equal(kitty.count().exits, 1);
+});
+
+test("Ctrl-C interrupts in either encoding", (t) => {
+  const legacy = keys(t);
+  legacy.terminal.press("\u0003");
+  assert.equal(legacy.count().interrupts, 1);
+
+  const kitty = keys(t);
+  kitty.terminal.press("\u001b[99;5u");
+  assert.equal(kitty.count().interrupts, 1);
+});
+
+test("letting go of a claimed key does nothing", (t) => {
+  const { terminal, count } = keys(t);
+  terminal.press("\u001b[100;5u");
+  terminal.press("\u001b[100;5:3u");
+  terminal.press("\u001b[99;5:3u");
+  assert.deepEqual(count(), { exits: 1, interrupts: 0 });
+});

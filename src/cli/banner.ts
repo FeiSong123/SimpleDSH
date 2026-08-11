@@ -173,5 +173,9 @@ export function banner(
   if (columns < NARROWEST_BOX) {
     return Object.freeze(body.filter((line) => line !== ""));
   }
-  return Object.freeze([...boxed(body, columns)]);
+  // Fit the box to what it holds rather than to the terminal. A frame drawn out
+  // to column 200 is mostly empty space with a line around it.
+  const content = Math.max(...body.map((line) => visibleWidth(line)));
+  const width = Math.min(columns, content + INSET * 2 + 2);
+  return Object.freeze([...boxed(body, width)]);
 }

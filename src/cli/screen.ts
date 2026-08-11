@@ -50,6 +50,21 @@ export interface ScreenOptions {
   readonly terminal?: Terminal;
 }
 
+/**
+ * Keys the interactive layer claims for itself.
+ *
+ * Each accepts both encodings: the control byte a plain terminal sends, and the
+ * CSI-u form the terminal sends once the TUI has negotiated the Kitty keyboard
+ * protocol. Only one of the two ever arrives, and which one is not this layer's
+ * decision.
+ */
+const isEnter = (data: string): boolean =>
+  matchesKey(data, "enter") || data === ENTER;
+const isEscape = (data: string): boolean =>
+  matchesKey(data, "escape") || data === ESCAPE;
+const isCtrlC = (data: string): boolean =>
+  matchesKey(data, "ctrl+c") || data === CTRL_C;
+
 function firstLine(text: string, limit: number): string {
   const line = text.split("\n")[0] ?? "";
   return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
@@ -382,15 +397,17 @@ export class Screen {
       handlers.onSubmit(text);
     };
     const listener = (data: string): TuiInputListenerResult => {
+      // The negotiated Kitty flags include event types, so letting go of a key
+      // is reported as well as pressing it, and `matchesKey` is as happy to
+      // match the release. The TUI drops releases before the focused component
+      // sees them, but an input listener runs ahead of that filter. Left to
+      // pass through, one press of an arrow moved the slider two stops and one
+      // Ctrl-D would have asked to exit twice.
+      if (isKeyRelease(data)) return { consume: this.#slider !== null };
       // While the slider is up it owns the arrows and Enter; nothing reaches
       // the editor, so the line being typed is still there afterwards.
       if (this.#slider !== null) {
         const slider = this.#slider;
-        // The negotiated Kitty flags include event types, so letting go of a
-        // key is reported too and one press arrived as two moves. The TUI
-        // filters releases before the focused component sees them, but an
-        // input listener runs ahead of that and has to do it itself.
-        if (isKeyRelease(data)) return { consume: true };
         // Ask the key parser rather than comparing bytes. The TUI negotiates
         // the Kitty keyboard protocol when the terminal offers it, and then an
         // arrow is not `ESC [ C` at all — matching raw sequences left the
@@ -403,24 +420,30 @@ export class Screen {
           this.#drawSlider();
           return { consume: true };
         }
-        if (matchesKey(data, "enter") || data === ENTER) {
+        if (isEnter(data)) {
           const picked = slider.stops[slider.at] ?? null;
           this.closeSlider();
           handlers.onPick?.(picked);
           return { consume: true };
         }
-        if (matchesKey(data, "escape") || data === ESCAPE || data === CTRL_C) {
+        if (isEscape(data) || isCtrlC(data)) {
           this.closeSlider();
           handlers.onPick?.(null);
           return { consume: true };
         }
         return { consume: true };
       }
-      if (data === CTRL_C) {
+      // Under the Kitty protocol Ctrl-C and Ctrl-D are `ESC [ 99 ; 5 u` and
+      // `ESC [ 100 ; 5 u`, not the control bytes, so comparing bytes meant
+      // neither interrupt nor exit reached this listener at all.
+      if (isCtrlC(data)) {
         handlers.onInterrupt();
         return { consume: true };
       }
-      if (data === CTRL_D && this.#editor.getText().length === 0) {
+      if (
+        (matchesKey(data, "ctrl+d") || data === CTRL_D) &&
+        this.#editor.getText().length === 0
+      ) {
         handlers.onExit();
         return { consume: true };
       }
@@ -429,7 +452,7 @@ export class Screen {
       // belongs to it first, so `/compact` + Enter silently did nothing until a
       // second Enter arrived.
       if (
-        data === ENTER &&
+        isEnter(data) &&
         this.#editor.isShowingAutocomplete() &&
         this.#commandNames.has(this.#editor.getText().trim())
       ) {
@@ -439,7 +462,7 @@ export class Screen {
       // Escape stops a turn, but only when the editor is not using it to close
       // its own completion list.
       if (
-        data === ESCAPE &&
+        isEscape(data) &&
         this.#activity !== null &&
         !this.#editor.isShowingAutocomplete()
       ) {

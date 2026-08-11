@@ -85,7 +85,7 @@ workspace path, `↑`/`↓` walk earlier messages, `Ctrl-D` exits.
 /login     store a DeepSeek API key
 /logout    remove the stored key
 /session   show the current session id
-/exit      leave
+/exit      leave, and /quit does the same
 ```
 
 `/clear` is display only — the session, its byte prefix and every durable fact

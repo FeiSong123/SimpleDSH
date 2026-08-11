@@ -55,6 +55,7 @@ const COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "logout", description: "remove the stored key" },
   { name: "session", description: "show the current session id" },
   { name: "exit", description: "leave simpledsh" },
+  { name: "quit", description: "leave simpledsh" },
 ]);
 
 const HELP = [
