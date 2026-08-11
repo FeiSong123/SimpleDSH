@@ -94,18 +94,35 @@ export class InteractiveSession {
   #promptTokens = 0;
   #compacting = false;
   readonly #limits: RunBudgetLimits;
+  readonly #compactAtTokens: number;
   #cachedPrice: FlashRegularPriceV1 | null = null;
 
   constructor(
     workspaceRoot: string,
     existing: Readonly<{ sessionId: SessionId; started: boolean }> | null,
     limits: RunBudgetLimits,
+    compactAtTokens: number = DEFAULT_COMPACTION_THRESHOLD_TOKENS,
   ) {
     this.#workspaceRoot = workspaceRoot;
     this.#screen = new Screen({ workspaceRoot, commands: COMMANDS });
     this.#sessionId = existing?.sessionId ?? null;
     this.#started = existing?.started ?? false;
     this.#limits = limits;
+    this.#compactAtTokens = compactAtTokens;
+  }
+
+  /**
+   * Whether the prefix has grown past the point where compacting is worth it.
+   *
+   * Exposed so the decision can be tested without a session that actually
+   * reaches half a million tokens.
+   */
+  static shouldCompact(
+    promptTokens: number,
+    threshold: number,
+    started: boolean,
+  ): boolean {
+    return started && threshold > 0 && promptTokens >= threshold;
   }
 
   /** The packaged dated price, loaded once and reused for every turn. */
@@ -163,13 +180,14 @@ export class InteractiveSession {
     // Flash degrades noticeably as the prefix approaches its 1M window, so the
     // trigger is the prefix size rather than an estimate of work remaining.
     if (
-      this.#promptTokens >= DEFAULT_COMPACTION_THRESHOLD_TOKENS &&
-      this.#started &&
-      this.#sessionId !== null
+      this.#sessionId !== null &&
+      InteractiveSession.shouldCompact(
+        this.#promptTokens,
+        this.#compactAtTokens,
+        this.#started,
+      )
     ) {
-      await this.#compact(
-        `context reached ${tokens(DEFAULT_COMPACTION_THRESHOLD_TOKENS)}`,
-      );
+      await this.#compact(`context reached ${tokens(this.#compactAtTokens)}`);
     }
     this.#running = true;
     this.#toolCount = 0;

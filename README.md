@@ -91,7 +91,8 @@ workspace path, `↑`/`↓` walk earlier messages, `Ctrl-D` exits.
 are untouched, and the next turn is still a cache hit. `/compact` is the one
 that changes what gets sent; it also runs on its own once the prefix reaches
 512K prompt tokens, because the model gets noticeably worse as it approaches
-its 1M window.
+its 1M window. `--auto-compact-tokens <n>` moves that point, and `0` turns it
+off.
 
 To let a command decide whether the work stands up:
 

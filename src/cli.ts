@@ -15,6 +15,7 @@ import { color, money, tokens } from "./cli/theme.js";
 import { formatToolActivity } from "./cli/transcript.js";
 import { withAutoResume } from "./cli/resume.js";
 import { withTruncationContinuation } from "./cli/truncation.js";
+import { DEFAULT_COMPACTION_THRESHOLD_TOKENS } from "./session/compaction.js";
 import {
   DeclaredVerification,
   isRetryable,
@@ -86,6 +87,9 @@ Turn budget (interactive/continue only; each turn stops cleanly at a boundary):
        --max-tool-rounds <n>     default 50
        --max-cost-usd <amount>   default 1
        --max-minutes <n>         default 30
+       --auto-compact-tokens <n> replace the conversation with a summary once
+                                 the prefix reaches n prompt tokens; 0 disables
+                                 (default 512000)
 
 Quarantine options (recover/reconcile only):
        --quarantine-fingerprint <sha256:...>
@@ -140,13 +144,17 @@ type CliCommand =
       readonly effort?: ReasoningEffort;
       readonly verify?: GateSpec;
     }>
-  | Readonly<{ readonly kind: "interactive" }>
+  | Readonly<{
+      readonly kind: "interactive";
+      readonly compactAtTokens: number;
+    }>
   | Readonly<{ readonly kind: "sessions" }>
   | Readonly<{ readonly kind: "login" }>
   | Readonly<{ readonly kind: "logout" }>
   | Readonly<{
       readonly kind: "continue";
       readonly sessionId: SessionId | null;
+      readonly compactAtTokens: number;
     }>
   | Readonly<{ readonly kind: "inspect"; readonly sessionId: SessionId }>
   | Readonly<{
@@ -292,9 +300,40 @@ function parseRecoveryArguments(
   });
 }
 
+/**
+ * Flags the multi-turn forms accept.
+ *
+ * They were documented in the usage text but unreachable: the interactive form
+ * required no arguments at all, and `continue` rejected anything past a session
+ * id, so every one of these was rejected as an invalid invocation.
+ */
+const SESSION_FLAGS = new Set([
+  "--max-tool-rounds",
+  "--max-cost-usd",
+  "--max-minutes",
+  "--auto-compact-tokens",
+]);
+
+/** The arguments left once the session flags and their values are removed. */
+function withoutSessionFlags(
+  arguments_: readonly string[],
+): readonly string[] {
+  return arguments_.filter((value, index, all) => {
+    if (SESSION_FLAGS.has(value)) return false;
+    const previous = all[index - 1];
+    return previous === undefined || !SESSION_FLAGS.has(previous);
+  });
+}
+
 async function parseCommand(arguments_: readonly string[]): Promise<CliCommand> {
-  if (arguments_.length === 0) return Object.freeze({ kind: "interactive" });
-  switch (arguments_[0]) {
+  const positional = withoutSessionFlags(arguments_);
+  if (positional.length === 0) {
+    return Object.freeze({
+      kind: "interactive",
+      compactAtTokens: parseCompactThreshold(arguments_),
+    });
+  }
+  switch (positional[0]) {
     case "run": {
       const effort = parseEffort(arguments_);
       const verify = parseVerify(arguments_);
@@ -315,11 +354,12 @@ async function parseCommand(arguments_: readonly string[]): Promise<CliCommand> 
       if (arguments_.length !== 1) throw new CliInputError();
       return Object.freeze({ kind: "logout" });
     case "continue":
-      if (arguments_.length > 2) throw new CliInputError();
+      if (positional.length > 2) throw new CliInputError();
       return Object.freeze({
         kind: "continue",
         sessionId:
-          arguments_.length === 2 ? parseSessionId(arguments_[1]) : null,
+          positional.length === 2 ? parseSessionId(positional[1]) : null,
+        compactAtTokens: parseCompactThreshold(arguments_),
       });
     case "inspect":
       if (arguments_.length !== 2) throw new CliInputError();
@@ -569,6 +609,21 @@ async function inspectSession(
  * Per-turn limits. Defaults bound an unattended session; the flags exist so a
  * long job can raise them deliberately rather than by accident.
  */
+/**
+ * `--auto-compact-tokens <n>`, or 0 to leave the conversation alone.
+ *
+ * The default suits Flash's 1M window. A different model, or a machine where
+ * latency matters more than cache hits, wants a different number, and the only
+ * way to find out is to be able to change it.
+ */
+function parseCompactThreshold(arguments_: readonly string[]): number {
+  const raw = flagValue(arguments_, "--auto-compact-tokens");
+  if (raw === undefined) return DEFAULT_COMPACTION_THRESHOLD_TOKENS;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) throw new CliInputError();
+  return value;
+}
+
 function parseBudgetOptions(
   arguments_: readonly string[],
 ): RunBudgetLimits {
@@ -700,6 +755,7 @@ async function main(): Promise<void> {
         workspaceRoot,
         existing,
         parseBudgetOptions(arguments_),
+        command.compactAtTokens,
       ).run();
       return;
     }
