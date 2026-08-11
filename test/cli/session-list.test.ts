@@ -6,6 +6,8 @@ import type { SessionSummary } from "../../src/cli/sessions.js";
 import type { SessionId } from "../../src/journal/types.js";
 
 const WIDE = 100;
+/** Local time, so the test pins the shape rather than the reader's timezone. */
+const STAMP = /^ ?\d+ {2}\d{4}-\d{2}-\d{2} \d{2}:\d{2} {2}/u;
 
 function summary(
   suffix: string,
@@ -22,21 +24,37 @@ function summary(
   }) as SessionSummary;
 }
 
-test("every session is one row, and the current one is marked", () => {
-  const current = summary("a");
+test("a row is a number, a date and what you were doing", () => {
+  // Not the session id: 36 columns of hex tells two sessions apart in theory
+  // and never in practice. The number is how you name one back.
+  const [row] = sessionListRows([summary("a")], null, WIDE);
+  assert.match(row?.text ?? "", STAMP);
+  assert.doesNotMatch(row?.text ?? "", /ses_/u);
+  assert.match(row?.text ?? "", /completed {4}3 turns {3}fix the failing case$/u);
+});
+
+test("the rows are numbered from one, in the order given", () => {
   const rows = sessionListRows(
-    [current, summary("b")],
+    [summary("a"), summary("b"), summary("c")],
+    null,
+    WIDE,
+  );
+  assert.deepEqual(
+    rows.map(({ text }) => text.trimStart().split(" ")[0]),
+    ["1", "2", "3"],
+  );
+});
+
+test("the current session is the marked one", () => {
+  const current = summary("b");
+  const rows = sessionListRows(
+    [summary("a"), current, summary("c")],
     current.sessionId,
     WIDE,
   );
-  assert.equal(rows.length, 2);
   assert.deepEqual(
     rows.map(({ current: isCurrent }) => isCurrent),
-    [true, false],
-  );
-  assert.equal(
-    rows[0]?.text,
-    `ses_${"a".repeat(32)}  completed    3 turns   fix the failing case`,
+    [false, true, false],
   );
 });
 
@@ -49,24 +67,33 @@ test("nothing is marked when the session has not started", () => {
 });
 
 test("a row never outgrows the room it was given", () => {
-  // A session id alone is 36 columns, so the title and then the turn count have
-  // to give way rather than wrapping the row onto a second line.
+  // The title gives way first, then the turn count; the number, the date and
+  // the state are what the row is for and never go.
   const long = summary("a", {
     title: "make the compaction threshold reachable and the flags with it",
   });
-  for (const room of [120, 100, 80, 70, 60, 50, 40]) {
+  for (const room of [120, 100, 80, 60, 44, 36]) {
     const [row] = sessionListRows([long], null, room);
     assert.ok(row !== undefined);
     assert.ok(
-      row.text.length <= Math.max(room, 36 + 2 + 11),
+      row.text.length <= Math.max(room, 33),
       `${String(row.text.length)} columns in room ${String(room)}`,
     );
-    // The identity and the state are what the row is for; they never go.
-    assert.match(row.text, /^ses_a+ {2}completed/u);
+    assert.match(row.text, STAMP);
+    assert.match(row.text, /completed/u);
   }
 });
 
-test("a session with no inline prompt still says something", () => {
+test("a session with no recorded activity still gets a row", () => {
+  const [row] = sessionListRows(
+    [summary("a", { lastActivityAt: null })],
+    null,
+    WIDE,
+  );
+  assert.match(row?.text ?? "", /^ 1 {2}- +completed/u);
+});
+
+test("a session with no inline prompt says so", () => {
   const [row] = sessionListRows([summary("a", { title: null })], null, WIDE);
   assert.match(row?.text ?? "", /\(no inline prompt\)$/u);
 });
@@ -74,8 +101,8 @@ test("a session with no inline prompt still says something", () => {
 test("one turn is not one turns", () => {
   const [one] = sessionListRows([summary("a", { turns: 1 })], null, WIDE);
   const [two] = sessionListRows([summary("b", { turns: 2 })], null, WIDE);
-  assert.match(one?.text ?? "", /1 turn {3}/u);
-  assert.match(two?.text ?? "", /2 turns {2}/u);
+  assert.match(one?.text ?? "", /1 turn {4}/u);
+  assert.match(two?.text ?? "", /2 turns {3}/u);
 });
 
 test("an interrupted session is listed, and says it is interrupted", () => {

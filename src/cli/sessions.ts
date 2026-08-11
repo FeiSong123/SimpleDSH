@@ -138,24 +138,45 @@ export async function mostRecentContinuableSession(
   return sessions.find(({ state }) => state === "completed") ?? null;
 }
 
+/** `2026-08-11 15:11`, in the reader's own timezone. */
+function when(timestamp: string | null): string {
+  if (timestamp === null) return "-".padEnd(16);
+  const at = new Date(timestamp);
+  if (Number.isNaN(at.getTime())) return "-".padEnd(16);
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return (
+    `${String(at.getFullYear())}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+    ` ${pad(at.getHours())}:${pad(at.getMinutes())}`
+  );
+}
+
 /**
  * One unpainted row per Session, trimmed to the room available.
  *
- * A session id is 36 columns on its own, so the title takes whatever is left
- * and is dropped before the row would wrap; the turn count goes first when even
- * that does not fit. Painting is the caller's business — this returns the text
- * and which row is the one you are in.
+ * Numbered rather than identified: a session id is 36 columns of hex that
+ * nobody reads, and what tells two sessions apart is when you were last in one
+ * and what you were doing. The number is how you name one back to the harness;
+ * the id is still there for `simpledsh continue`, one command away.
+ *
+ * The title takes whatever room is left and is dropped before the row would
+ * wrap; the turn count goes first when even that does not fit.
  */
 export function sessionListRows(
   sessions: readonly SessionSummary[],
   currentSessionId: SessionId | null,
   room: number,
 ): readonly Readonly<{ text: string; current: boolean }>[] {
+  const ordinal = Math.max(2, String(sessions.length).length);
   return Object.freeze(
-    sessions.map((session) => {
+    sessions.map((session, index) => {
       const turns = `${String(session.turns)} turn${session.turns === 1 ? "" : "s"}`;
-      const columns = [session.sessionId, session.state.padEnd(11)];
-      if (room >= 36 + 2 + 11 + 2 + 8) columns.push(turns.padEnd(8));
+      const columns = [
+        String(index + 1).padStart(ordinal),
+        when(session.lastActivityAt),
+        session.state.padEnd(11),
+      ];
+      const fixed = columns.reduce((total, part) => total + part.length + 2, -2);
+      if (room >= fixed + 2 + 8) columns.push(turns.padEnd(8));
       const spent = columns.reduce((total, part) => total + part.length + 2, -2);
       const title = session.title ?? "(no inline prompt)";
       const left = room - spent - 2;

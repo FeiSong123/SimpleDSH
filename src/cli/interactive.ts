@@ -43,7 +43,11 @@ import { isKnownSlashCommand } from "./slash-command.js";
 import { isResumable, MAX_AUTO_RESUMES, withAutoResume } from "./resume.js";
 import { banner, type RunContext } from "./banner.js";
 import { Screen } from "./screen.js";
-import { listSessions, sessionListRows } from "./sessions.js";
+import {
+  listSessions,
+  sessionListRows,
+  type SessionSummary,
+} from "./sessions.js";
 import { withTruncationContinuation } from "./truncation.js";
 import { color, duration, money, tokens } from "./theme.js";
 import { formatToolActivity } from "./transcript.js";
@@ -317,8 +321,12 @@ export class InteractiveSession {
    * that never closed and has to go through `recover` first, which is a
    * different act and says so.
    */
-  async #showSessions(): Promise<void> {
+  async #showSessions(pick?: string): Promise<void> {
     const sessions = await listSessions(this.#workspaceRoot);
+    if (pick !== undefined) {
+      this.#nameSession(sessions, pick);
+      return;
+    }
     if (sessions.length === 0) {
       this.#screen.say(color.dim("no sessions in this workspace"));
       return;
@@ -337,23 +345,41 @@ export class InteractiveSession {
           : `  ${color.dim(text)}`,
       );
     }
-    const resumable = sessions.filter(
-      ({ sessionId, state }) => state === "completed" && sessionId !== this.#sessionId,
+    const elsewhere = sessions.some(
+      ({ sessionId }) => sessionId !== this.#sessionId,
     );
-    const stuck = sessions.filter(({ state }) => state === "interrupted");
+    if (!elsewhere) return;
     this.#screen.blank();
-    if (resumable.length > 0) {
+    this.#screen.say(
+      color.dim("/session <number>  for the command that takes one up"),
+    );
+  }
+
+  /**
+   * The id and the command for one numbered row.
+   *
+   * Resuming replaces the Session this loop is in, which is a different act
+   * from listing and belongs at the shell rather than three keystrokes from a
+   * turn in flight. So this prints what to run instead of running it.
+   */
+  #nameSession(sessions: readonly SessionSummary[], pick: string): void {
+    const at = Number(pick);
+    if (!Number.isInteger(at) || at < 1 || at > sessions.length) {
       this.#screen.say(
-        color.dim(`simpledsh continue <session-id>  to take another one up`),
-      );
-    }
-    if (stuck.length > 0) {
-      this.#screen.say(
-        color.dim(
-          `simpledsh recover <session-id>   to close an interrupted one first`,
+        color.warn(
+          `[no session ${pick}; /session lists ${String(sessions.length)}]`,
         ),
       );
+      return;
     }
+    const session = sessions[at - 1];
+    if (session === undefined) return;
+    this.#screen.say(color.dim(session.sessionId));
+    this.#screen.say(
+      session.state === "completed"
+        ? color.dim(`simpledsh continue ${session.sessionId}`)
+        : color.dim(`simpledsh recover ${session.sessionId}`),
+    );
   }
 
   /**
@@ -361,7 +387,8 @@ export class InteractiveSession {
    * message to the model, so these need a prefix that a prompt would not use.
    */
   async #command(text: string): Promise<void> {
-    const [name] = text.slice(1).split(/\s+/u);
+    const [name, ...arguments_] = text.slice(1).split(/\s+/u);
+    const rest = arguments_.join(" ");
     switch (name) {
       case "help":
         this.#screen.say(HELP);
@@ -407,7 +434,7 @@ export class InteractiveSession {
         );
         break;
       case "session":
-        await this.#showSessions();
+        await this.#showSessions(rest.length === 0 ? undefined : rest);
         break;
       case "exit":
       case "quit":

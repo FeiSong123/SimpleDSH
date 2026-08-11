@@ -84,7 +84,7 @@ workspace path, `↑`/`↓` walk earlier messages, `Ctrl-D` exits.
 /effort    how hard the model thinks: low, high, max
 /login     store a DeepSeek API key
 /logout    remove the stored key
-/session   list this workspace's sessions
+/session   list this workspace's sessions; /session <n> for one
 /exit      leave, and /quit does the same
 ```
 
