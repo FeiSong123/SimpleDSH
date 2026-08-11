@@ -1,5 +1,7 @@
 # FlashCoder
 
+![FlashCoder typing at its prompt](docs/demo.gif)
+
 A cache-first, crash-recoverable coding agent for DeepSeek.
 
 FlashCoder is a coding agent that runs in your terminal and talks to
