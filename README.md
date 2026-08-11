@@ -6,19 +6,22 @@ SimpleDSH is a coding agent that runs in your terminal and talks to
 `api.deepseek.com` directly. It reads and edits files, runs shell commands, and
 writes down everything it did in a form you can replay.
 
-Status: v0.1 release candidate. Not yet published to npm.
+Status: v0.1 release candidate. Installed from a GitHub release; not on the
+npm registry yet.
 
 ## Install
 
-Node 22 or newer.
+Node 22 or newer, on macOS or Linux.
 
 ```sh
-git clone <repo> && cd SimpleDSH
-npm install
-npm run build
-npm link
+npm install -g https://github.com/Owen718/SimpleDSH/releases/download/v0.1.0-rc.0/simpledsh-0.1.0-rc.0.tgz
 simpledsh login
 ```
+
+The release is prebuilt, so installing unpacks it and nothing else. This
+package declares no install-time scripts and never will — running a build on
+your machine during `npm install` is the shape of supply-chain problem this
+project avoids elsewhere, so it is not going to introduce one here.
 
 `simpledsh login` prompts for a DeepSeek API key without echoing it, checks it
 against the provider before saving, and writes it to
@@ -29,6 +32,15 @@ removes it.
 The key is read from, in order: the `DEEPSEEK_API_KEY` environment variable, a
 `.env` at the project root, then the stored file. A project `.env` must be
 Git-ignored and mode `0600` or startup refuses.
+
+### From source
+
+```sh
+git clone https://github.com/Owen718/SimpleDSH && cd SimpleDSH
+npm install
+npm run build
+npm link
+```
 
 ## Use
 
@@ -113,6 +125,7 @@ npm run build            # two passes: the vendored TUI, then the strict project
 npm run check            # build, then the packaging and supply-chain checks
 npm test                 # every suite
 npm run test:acceptance  # three fixed tasks, proved fail→pass without a model
+npm run release          # pack, then install and run the tarball to prove it works
 ```
 
 Tests are grouped by area under `test/`: `protocol`, `context`, `journal`,
