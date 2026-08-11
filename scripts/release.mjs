@@ -59,7 +59,8 @@ process.stdout.write(
     `  gh release create ${tag} ${target} --title ${tag} --notes-file <notes>`,
     "",
     "Users then install with:",
-    `  npm install -g https://github.com/Owen718/SimpleDSH/releases/download/${tag}/${packed}`,
+    `  curl -fsSL https://github.com/Owen718/SimpleDSH/releases/download/${tag}/${packed} -o ${packed}`,
+    `  npm install -g ./${packed}`,
     "",
   ].join("\n"),
 );

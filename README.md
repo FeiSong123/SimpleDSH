@@ -14,9 +14,14 @@ npm registry yet.
 Node 22 or newer, on macOS or Linux.
 
 ```sh
-npm install -g https://github.com/Owen718/SimpleDSH/releases/download/v0.1.0-rc.0/simpledsh-0.1.0-rc.0.tgz
+curl -fsSL https://github.com/Owen718/SimpleDSH/releases/download/v0.1.0-rc.0/simpledsh-0.1.0-rc.0.tgz -o simpledsh.tgz
+npm install -g ./simpledsh.tgz
 simpledsh login
 ```
+
+Download first, then install from the file. Recent npm refuses to fetch tarballs
+from arbitrary URLs — `npm error code EALLOWREMOTE` — and this way works on
+every version, on a file you can inspect before installing it.
 
 The release is prebuilt, so installing unpacks it and nothing else. This
 package declares no install-time scripts and never will — running a build on
