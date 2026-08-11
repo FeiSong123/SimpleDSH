@@ -183,26 +183,28 @@ function keys(t: TestContext): {
   return { terminal, exits, interrupts, count: () => ({ exits, interrupts }) };
 }
 
-test("Ctrl-D exits in either encoding", (t) => {
-  // With the Kitty protocol negotiated the terminal sends `ESC [ 100 ; 5 u`
-  // rather than the control byte, and comparing bytes meant Ctrl-D did nothing.
-  const legacy = keys(t);
-  legacy.terminal.press("\u0004");
-  assert.equal(legacy.count().exits, 1);
+// The same key in the three forms a terminal may send it: the control byte, a
+// Kitty CSI-u sequence, and an xterm modifyOtherKeys sequence. Which one
+// arrives depends on what the terminal negotiated, not on anything this layer
+// decides, so all three have to work. The modifyOtherKeys case is the one
+// FeiSong123 hit under tmux with `extended-keys-format csi-u` (PR #3).
+const CTRL_C = ["\u0003", "\u001b[99;5u", "\u001b[27;5;99~"] as const;
+const CTRL_D = ["\u0004", "\u001b[100;5u", "\u001b[27;5;100~"] as const;
 
-  const kitty = keys(t);
-  kitty.terminal.press("\u001b[100;5u");
-  assert.equal(kitty.count().exits, 1);
+test("Ctrl-D exits in every encoding", (t) => {
+  for (const encoding of CTRL_D) {
+    const { terminal, count } = keys(t);
+    terminal.press(encoding);
+    assert.equal(count().exits, 1, encoding);
+  }
 });
 
-test("Ctrl-C interrupts in either encoding", (t) => {
-  const legacy = keys(t);
-  legacy.terminal.press("\u0003");
-  assert.equal(legacy.count().interrupts, 1);
-
-  const kitty = keys(t);
-  kitty.terminal.press("\u001b[99;5u");
-  assert.equal(kitty.count().interrupts, 1);
+test("Ctrl-C interrupts in every encoding", (t) => {
+  for (const encoding of CTRL_C) {
+    const { terminal, count } = keys(t);
+    terminal.press(encoding);
+    assert.equal(count().interrupts, 1, encoding);
+  }
 });
 
 test("letting go of a claimed key does nothing", (t) => {
