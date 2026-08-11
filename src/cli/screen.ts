@@ -109,6 +109,21 @@ export class Screen {
     this.#append(new Text(text, 1, 0));
   }
 
+  /**
+   * Empty the visible transcript.
+   *
+   * The screen is a projection, so this discards nothing: the Session, its byte
+   * prefix and every durable fact are untouched, and the next turn continues
+   * exactly where this one left off. It is a way to stop scrolling past work
+   * you are done reading, not a way to forget it.
+   */
+  clearTranscript(): void {
+    this.#stream = null;
+    this.#streamText = "";
+    this.#transcript.clear();
+    this.#tui.requestRender(true);
+  }
+
   blank(): void {
     this.#append(new Spacer(1));
   }

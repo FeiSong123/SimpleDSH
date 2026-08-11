@@ -774,14 +774,18 @@ export function selectLineagePrefixV1(
         }
         const from = lineages.get(event.payload.fromLineageId);
         const to = lineages.get(event.payload.toLineageId);
+        // A compaction break keeps the Cache ABI and replaces the
+        // conversation; an ABI change is the other way round. Both leave the
+        // active Lineage, and neither may nest.
+        const sameAbi = from?.cacheAbiId === to?.cacheAbiId;
         if (
           pendingBreak !== undefined ||
           activeLineageId !== event.payload.fromLineageId ||
           from === undefined ||
           to === undefined ||
-          from.cacheAbiId === to.cacheAbiId
+          sameAbi !== (event.payload.reason === "compaction")
         ) {
-          fail("planned cache break does not bind an ABI transition");
+          fail("planned cache break does not bind a Lineage transition");
         }
         pendingBreak = {
           from: event.payload.fromLineageId,

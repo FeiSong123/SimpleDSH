@@ -23,6 +23,12 @@ import {
   type ToolActivity,
   type RunBudgetLimits,
 } from "../session/index.js";
+import {
+  COMPACTION_PROMPT,
+  DEFAULT_COMPACTION_THRESHOLD_TOKENS,
+  pendingCompactionSummary,
+  recordCompaction,
+} from "../session/compaction.js";
 import type { SlashCommand } from "../tui/index.js";
 import { runLogin, runLogout } from "./login.js";
 import { isResumable, MAX_AUTO_RESUMES } from "./resume.js";
@@ -33,6 +39,8 @@ import { formatToolActivity } from "./transcript.js";
 
 const COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "help", description: "keys and commands" },
+  { name: "clear", description: "empty the screen, keep the conversation" },
+  { name: "compact", description: "replace the conversation with a summary" },
   { name: "login", description: "store a DeepSeek API key" },
   { name: "logout", description: "remove the stored key" },
   { name: "session", description: "show the current session id" },
@@ -46,7 +54,7 @@ const HELP = [
   `${color.bold("Ctrl-D")}       exit`,
   `${color.bold("Tab")}          accept a completion`,
   `${color.bold("@")}            complete a workspace path`,
-  `${color.bold("/")}            commands`,
+  `${color.bold("/")}            commands, including /clear to empty the screen`,
   `${color.bold("Up/Down")}      earlier messages`,
 ].join("\n");
 
@@ -83,6 +91,8 @@ export class InteractiveSession {
   #wake: (() => void) | null = null;
   #toolCount = 0;
   #exitHintShown = false;
+  #promptTokens = 0;
+  #compacting = false;
   readonly #limits: RunBudgetLimits;
   #cachedPrice: FlashRegularPriceV1 | null = null;
 
@@ -132,6 +142,8 @@ export class InteractiveSession {
     // The token count is the last value the provider reported, so it lags the
     // true current prefix. Label it as "last" rather than implying it is live.
     const observed = report.lastProviderObservedPromptTokens;
+    this.#promptTokens =
+      observed === null || observed === undefined ? this.#promptTokens : Number(observed);
     const context =
       observed === null || observed === undefined
         ? "context -"
@@ -148,6 +160,17 @@ export class InteractiveSession {
   };
 
   async #runTurn(text: string): Promise<void> {
+    // Flash degrades noticeably as the prefix approaches its 1M window, so the
+    // trigger is the prefix size rather than an estimate of work remaining.
+    if (
+      this.#promptTokens >= DEFAULT_COMPACTION_THRESHOLD_TOKENS &&
+      this.#started &&
+      this.#sessionId !== null
+    ) {
+      await this.#compact(
+        `context reached ${tokens(DEFAULT_COMPACTION_THRESHOLD_TOKENS)}`,
+      );
+    }
     this.#running = true;
     this.#toolCount = 0;
     this.#controller = new AbortController();
@@ -163,10 +186,19 @@ export class InteractiveSession {
       );
       if (this.#sessionId === null) this.#sessionId = newSessionId();
       budget = new RunBudget(this.#limits, await this.#price());
+      // A Lineage created by compaction has no prefix yet. Its first turn
+      // carries the summary, so the work continues rather than restarting.
+      const summary = this.#started
+        ? await pendingCompactionSummary(this.#workspaceRoot, this.#sessionId)
+        : null;
+      const userInput =
+        summary === null
+          ? text
+          : `Here is where the previous conversation left off.\n\n${summary}\n\n---\n\n${text}`;
       const input = {
         workspaceRoot: this.#workspaceRoot,
         sessionId: this.#sessionId,
-        userInput: text,
+        userInput,
         environmentFacts,
         signal: this.#controller.signal,
         onPreview: this.#preview,
@@ -225,6 +257,14 @@ export class InteractiveSession {
       case "help":
         this.#screen.say(HELP);
         break;
+      case "clear":
+        // Display only. The Session keeps its byte prefix, so the next turn is
+        // still a cache hit and nothing durable is lost.
+        this.#screen.clearTranscript();
+        this.#screen.say(
+          color.dim(`screen cleared · ${this.#sessionId ?? "no session yet"} continues`),
+        );
+        break;
       case "login":
         // Reading a secret needs the raw terminal, so hand the screen back for
         // the duration rather than nesting two readers on one stdin.
@@ -246,6 +286,9 @@ export class InteractiveSession {
         } catch (error) {
           this.#screen.say(color.error(`[logout failed: ${describe(error)}]`));
         }
+        break;
+      case "compact":
+        await this.#compact("asked for");
         break;
       case "session":
         this.#screen.say(
@@ -336,6 +379,68 @@ export class InteractiveSession {
         `[still failing after ${String(MAX_AUTO_RESUMES)} attempts; run simpledsh recover ${sessionId} when ready]`,
       ),
     );
+  }
+
+  /**
+   * Replace the conversation with a summary of itself.
+   *
+   * The summary is written by the model on the Lineage being replaced, so
+   * reading the whole history is still a cache hit; only afterwards does a new
+   * Lineage become active. Nothing durable is discarded — the old bytes stay
+   * replayable, they simply stop being sent.
+   */
+  async #compact(cause: string): Promise<void> {
+    if (this.#sessionId === null || !this.#started) {
+      this.#screen.say(color.warn("[nothing to compact yet]"));
+      return;
+    }
+    if (this.#compacting) return;
+    this.#compacting = true;
+    const before = this.#promptTokens;
+    this.#screen.say(
+      color.dim(`[compacting — ${cause}, ${tokens(before)} in context]`),
+    );
+    this.#screen.setWorking(true);
+    try {
+      const credential = loadDeepSeekCredential({
+        projectRoot: this.#workspaceRoot,
+      });
+      const environmentFacts = await captureSessionEnvironment(
+        this.#workspaceRoot,
+      );
+      const summary = await continueOfficialSession({
+        workspaceRoot: this.#workspaceRoot,
+        sessionId: this.#sessionId,
+        userInput: COMPACTION_PROMPT,
+        environmentFacts,
+        signal: this.#controller?.signal ?? new AbortController().signal,
+        onStatus: this.#onStatus,
+        credential,
+      });
+      if (summary.content.trim().length === 0) {
+        this.#screen.say(color.warn("[compaction produced no summary; nothing changed]"));
+        return;
+      }
+      const result = await recordCompaction({
+        workspaceRoot: this.#workspaceRoot,
+        sessionId: this.#sessionId,
+        summary: summary.content,
+        replacedPromptTokens: before,
+      });
+      this.#screen.clearTranscript();
+      this.#screen.say(
+        color.dim(
+          `compacted · ${tokens(before)} → summary · lineage ${result.toLineageId}`,
+        ),
+      );
+      this.#screen.say(summary.content);
+      this.#screen.blank();
+    } catch (error) {
+      this.#screen.say(color.error(`[compaction failed: ${describe(error)}]`));
+    } finally {
+      this.#screen.setWorking(false);
+      this.#compacting = false;
+    }
   }
 
   #requestExit(): void {

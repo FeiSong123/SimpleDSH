@@ -181,3 +181,30 @@ test("a wide character does not push a line past the terminal width", (t) => {
   view.say("测试".repeat(60));
   assert.doesNotThrow(() => drawn());
 });
+
+test("clearing the screen keeps the conversation", (t) => {
+  // The transcript is a projection. Emptying it must not be a way to lose work,
+  // so the ledger and the queue — which describe the Session, not the screen —
+  // survive it.
+  const { screen: view, drawn } = screen(t);
+  view.say("read calc.py");
+  view.setLedger("$0.0001 · cache 90.00% · context 1K");
+  view.setPending(["run the tests"]);
+  assert.match(drawn(), /read calc\.py/u);
+
+  view.clearTranscript();
+  const after = drawn();
+  assert.doesNotMatch(after.slice(-400), /read calc\.py/u);
+  assert.match(after, /cache 90\.00%/u);
+  assert.match(after, /run the tests/u);
+});
+
+test("a stream started before a clear does not grow back into it", (t) => {
+  const { screen: view, drawn } = screen(t);
+  view.stream("first half ");
+  view.clearTranscript();
+  view.stream("second half");
+  const after = drawn();
+  assert.doesNotMatch(after, /first half second half/u);
+  assert.match(after, /second half/u);
+});

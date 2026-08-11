@@ -98,7 +98,7 @@ export interface JournalPayloadByType {
   readonly lineage_activated: {
     readonly previousLineageId: LineageId | null;
     readonly nextLineageId: LineageId;
-    readonly reason: "initial" | "abi_change";
+    readonly reason: "initial" | "abi_change" | "compaction";
   };
   readonly run_started: {
     readonly cause: "user" | "continue" | "recovery";
@@ -235,6 +235,22 @@ export interface JournalPayloadByType {
         readonly toLineageId: LineageId;
         readonly reason: "abi_change";
         readonly authorizedRevision: string;
+      }
+    | {
+        /**
+         * The prefix was replaced by a summary of itself.
+         *
+         * Same Cache ABI on both sides — the system blob, the tools and the
+         * model tuple are unchanged. What changed is the conversation: the new
+         * Lineage starts from a summary the model wrote on the old one, so the
+         * old prefix is deliberately abandoned rather than corrupted.
+         */
+        readonly classification: "planned";
+        readonly fromLineageId: LineageId;
+        readonly toLineageId: LineageId;
+        readonly reason: "compaction";
+        readonly summaryArtifactId: ArtifactId;
+        readonly replacedPromptTokens: number;
       }
     | {
         readonly classification: "unplanned";

@@ -426,7 +426,7 @@ function normalizePayload(type: JournalEventType, input: unknown): unknown {
     }
     case "lineage_activated": {
       exactKeys(value, ["previousLineageId", "nextLineageId", "reason"]);
-      const reason = enumValue(value["reason"], ["initial", "abi_change"] as const);
+      const reason = enumValue(value["reason"], ["initial", "abi_change", "compaction"] as const);
       const previousLineageId = nullable(value["previousLineageId"], asLineageId);
       if ((reason === "initial") !== (previousLineageId === null)) fail();
       return {
@@ -739,6 +739,30 @@ function normalizePayload(type: JournalEventType, input: unknown): unknown {
         "planned",
         "unplanned",
       ] as const);
+      if (classification === "planned" && value["reason"] === "compaction") {
+        exactKeys(value, [
+          "classification",
+          "fromLineageId",
+          "toLineageId",
+          "reason",
+          "summaryArtifactId",
+          "replacedPromptTokens",
+        ]);
+        const fromLineageId = asLineageId(value["fromLineageId"]);
+        const toLineageId = asLineageId(value["toLineageId"]);
+        if (fromLineageId === toLineageId) fail();
+        return {
+          classification: "planned" as const,
+          fromLineageId,
+          toLineageId,
+          reason: "compaction" as const,
+          summaryArtifactId: typedId(
+            value["summaryArtifactId"],
+            "artifact",
+          ) as JournalPayloadByType["artifact_published"]["artifactId"],
+          replacedPromptTokens: nonNegative(value["replacedPromptTokens"]),
+        };
+      }
       if (classification === "planned") {
         exactKeys(value, [
           "classification",

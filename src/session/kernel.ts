@@ -1149,20 +1149,24 @@ async function initializeContinuation(
         : latest,
     undefined,
   );
-  if (previousRun?.runId === undefined) {
+  // A Lineage created by compaction has no Run yet. Its first turn is a user
+  // turn, exactly like the first turn of a Session — there is no earlier Run on
+  // this prefix to continue from, because the prefix is new.
+  const previousRunId = previousRun?.runId;
+  if (previousRunId !== undefined) {
+    // The previous Run must be closed, but it may have closed either way: a Run
+    // the user interrupted at a safe boundary is continuable. Whether the
+    // durable tail is actually closed is enforced by the Journal bindings when
+    // the run_started is appended, which is the authority for that check.
+    const closed = opened.writer.events.some(
+      (event) =>
+        (event.type === "run_completed" || event.type === "run_interrupted") &&
+        event.runId === previousRunId,
+    );
+    if (!closed) throw new SessionKernelError("invalid_state");
+  } else if (activation.payload.reason !== "compaction") {
     throw new SessionKernelError("invalid_state");
   }
-  const previousRunId = previousRun.runId;
-  // The previous Run must be closed, but it may have closed either way: a Run
-  // the user interrupted at a safe boundary is continuable. Whether the durable
-  // tail is actually closed is enforced by the Journal bindings when the
-  // run_started is appended, which is the authority for that check.
-  const closed = opened.writer.events.some(
-    (event) =>
-      (event.type === "run_completed" || event.type === "run_interrupted") &&
-      event.runId === previousRunId,
-  );
-  if (!closed) throw new SessionKernelError("invalid_state");
 
   const cacheAbi = await loadActiveCacheAbi(opened, lineageId);
   // The effort is frozen into this Lineage's ABI. Continuing with a different
@@ -1179,7 +1183,10 @@ async function initializeContinuation(
     sessionId: input.sessionId,
     lineageId,
     runId,
-    payload: { cause: "continue", previousRunId },
+    payload:
+      previousRunId === undefined
+        ? { cause: "user", previousRunId: null }
+        : { cause: "continue", previousRunId },
   });
 
   const factInputs = [

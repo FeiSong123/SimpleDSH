@@ -1133,7 +1133,10 @@ async function applyEvent(
           "lineage",
         ) as LineageBinding;
         if (
-          previous.cacheAbiId === next.cacheAbiId ||
+          (event.payload.reason !== "compaction" &&
+            previous.cacheAbiId === next.cacheAbiId) ||
+          (event.payload.reason === "compaction" &&
+            previous.cacheAbiId !== next.cacheAbiId) ||
           state.pendingAbiChange?.fromLineageId !==
             event.payload.previousLineageId ||
           state.pendingAbiChange.toLineageId !== event.payload.nextLineageId
@@ -1874,6 +1877,29 @@ async function applyEvent(
       break;
     }
     case "cache_break":
+      if (
+        event.payload.classification === "planned" &&
+        event.payload.reason === "compaction"
+      ) {
+        // Same Cache ABI on both sides: the frozen zone did not move, the
+        // conversation did. What must hold is that the break leaves the
+        // currently active Lineage and that the summary it names is durable.
+        requireObject(state, event.payload.fromLineageId, "lineage");
+        requireObject(state, event.payload.toLineageId, "lineage");
+        requireArtifact(state, event.payload.summaryArtifactId);
+        if (
+          state.pendingAbiChange !== undefined ||
+          state.activeLineageId !== event.payload.fromLineageId ||
+          state.activeRunId !== undefined
+        ) {
+          referenceFailure();
+        }
+        state.pendingAbiChange = Object.freeze({
+          fromLineageId: event.payload.fromLineageId,
+          toLineageId: event.payload.toLineageId,
+        });
+        break;
+      }
       if (event.payload.classification === "planned") {
         const from = requireObject(
           state,
