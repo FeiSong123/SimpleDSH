@@ -43,6 +43,7 @@ import { isKnownSlashCommand } from "./slash-command.js";
 import { isResumable, MAX_AUTO_RESUMES, withAutoResume } from "./resume.js";
 import { banner, type RunContext } from "./banner.js";
 import { Screen } from "./screen.js";
+import { listSessions, sessionListRows } from "./sessions.js";
 import { withTruncationContinuation } from "./truncation.js";
 import { color, duration, money, tokens } from "./theme.js";
 import { formatToolActivity } from "./transcript.js";
@@ -54,7 +55,7 @@ const COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "effort", description: "how hard the model thinks" },
   { name: "login", description: "store a DeepSeek API key" },
   { name: "logout", description: "remove the stored key" },
-  { name: "session", description: "show the current session id" },
+  { name: "session", description: "list this workspace's sessions" },
   { name: "exit", description: "leave simpledsh" },
   { name: "quit", description: "leave simpledsh" },
 ]);
@@ -308,6 +309,54 @@ export class InteractiveSession {
   }
 
   /**
+   * Every Session recorded under this workspace, most recent first.
+   *
+   * The one in front of you is marked; the rest are what you could pick up
+   * again, so each line ends with the command that would do it. A `completed`
+   * Session takes a new turn with `continue`; an `interrupted` one has a Run
+   * that never closed and has to go through `recover` first, which is a
+   * different act and says so.
+   */
+  async #showSessions(): Promise<void> {
+    const sessions = await listSessions(this.#workspaceRoot);
+    if (sessions.length === 0) {
+      this.#screen.say(color.dim("no sessions in this workspace"));
+      return;
+    }
+    // Three columns come off the top: the marker and the padding the screen
+    // puts around every line it prints.
+    const rows = sessionListRows(
+      sessions,
+      this.#sessionId,
+      (process.stdout.columns || 80) - 3,
+    );
+    for (const { text, current } of rows) {
+      this.#screen.say(
+        current
+          ? `${color.tool("●")} ${color.bold(text)} ${color.dim("· this session")}`
+          : `  ${color.dim(text)}`,
+      );
+    }
+    const resumable = sessions.filter(
+      ({ sessionId, state }) => state === "completed" && sessionId !== this.#sessionId,
+    );
+    const stuck = sessions.filter(({ state }) => state === "interrupted");
+    this.#screen.blank();
+    if (resumable.length > 0) {
+      this.#screen.say(
+        color.dim(`simpledsh continue <session-id>  to take another one up`),
+      );
+    }
+    if (stuck.length > 0) {
+      this.#screen.say(
+        color.dim(
+          `simpledsh recover <session-id>   to close an interrupted one first`,
+        ),
+      );
+    }
+  }
+
+  /**
    * The fixed built-in commands. Everything else typed at the prompt is a
    * message to the model, so these need a prefix that a prompt would not use.
    */
@@ -358,9 +407,7 @@ export class InteractiveSession {
         );
         break;
       case "session":
-        this.#screen.say(
-          color.dim(`session ${this.#sessionId ?? "not started"}`),
-        );
+        await this.#showSessions();
         break;
       case "exit":
       case "quit":

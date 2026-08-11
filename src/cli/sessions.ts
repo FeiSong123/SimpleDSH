@@ -138,6 +138,38 @@ export async function mostRecentContinuableSession(
   return sessions.find(({ state }) => state === "completed") ?? null;
 }
 
+/**
+ * One unpainted row per Session, trimmed to the room available.
+ *
+ * A session id is 36 columns on its own, so the title takes whatever is left
+ * and is dropped before the row would wrap; the turn count goes first when even
+ * that does not fit. Painting is the caller's business — this returns the text
+ * and which row is the one you are in.
+ */
+export function sessionListRows(
+  sessions: readonly SessionSummary[],
+  currentSessionId: SessionId | null,
+  room: number,
+): readonly Readonly<{ text: string; current: boolean }>[] {
+  return Object.freeze(
+    sessions.map((session) => {
+      const turns = `${String(session.turns)} turn${session.turns === 1 ? "" : "s"}`;
+      const columns = [session.sessionId, session.state.padEnd(11)];
+      if (room >= 36 + 2 + 11 + 2 + 8) columns.push(turns.padEnd(8));
+      const spent = columns.reduce((total, part) => total + part.length + 2, -2);
+      const title = session.title ?? "(no inline prompt)";
+      const left = room - spent - 2;
+      if (left >= 8) {
+        columns.push(title.length > left ? `${title.slice(0, left - 1)}…` : title);
+      }
+      return Object.freeze({
+        text: columns.join("  "),
+        current: session.sessionId === currentSessionId,
+      });
+    }),
+  );
+}
+
 export function formatSessionList(
   sessions: readonly SessionSummary[],
 ): string {
