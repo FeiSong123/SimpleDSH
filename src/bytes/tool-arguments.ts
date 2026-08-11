@@ -1,9 +1,18 @@
 import { assertUnicodeScalarString } from "./ops.js";
-import type { ToolSchemaProfile } from "./schemas.js";
+import {
+  activeEditProfile,
+  type ToolSchemaProfile,
+} from "./schemas.js";
 import { asToolCallId } from "./tool-call-id.js";
 import type { ToolCallId } from "./tool-call-id.js";
 
-export const toolNames = Object.freeze(["bash", "edit", "read", "write"] as const);
+export const toolNames = Object.freeze([
+  "bash",
+  "edit",
+  "read",
+  "web_search",
+  "write",
+] as const);
 export type ToolName = (typeof toolNames)[number];
 
 export interface ReadArguments {
@@ -29,11 +38,20 @@ export interface BashArguments {
   readonly timeoutSeconds: number;
 }
 
+export interface WebSearchArguments {
+  readonly searchQuery: string;
+  readonly searchLocale: string;
+}
+
 export type ValidatedToolArguments =
-  | Readonly<{ readonly name: "read"; readonly value: ReadArguments }>
-  | Readonly<{ readonly name: "write"; readonly value: WriteArguments }>
-  | Readonly<{ readonly name: "edit"; readonly value: EditArguments }>
-  | Readonly<{ readonly name: "bash"; readonly value: BashArguments }>;
+  | Readonly<{ readonly name: "read"; readonly value: Readonly<ReadArguments> }>
+  | Readonly<{ readonly name: "write"; readonly value: Readonly<WriteArguments> }>
+  | Readonly<{ readonly name: "edit"; readonly value: Readonly<EditArguments> }>
+  | Readonly<{ readonly name: "bash"; readonly value: Readonly<BashArguments> }>
+  | Readonly<{
+      readonly name: "web_search";
+      readonly value: Readonly<WebSearchArguments>;
+    }>;
 
 export type StaticToolValidationCode =
   | "unknown_tool"
@@ -90,6 +108,15 @@ function knownToolName(value: string): value is ToolName {
   return (toolNames as readonly string[]).includes(value);
 }
 
+/**
+ * web_search exists only in the active search-v1 tools ABI. Sessions whose
+ * Lineage froze the previous or legacy tools blob never declared the tool, so
+ * a call under those profiles is the same as an unknown tool.
+ */
+function webSearchAdmittedForProfile(profile: ToolSchemaProfile): boolean {
+  return profile === "search-v1";
+}
+
 export function validateToolArgumentsForProfile(
   name: string,
   argumentsText: string,
@@ -98,6 +125,9 @@ export function validateToolArgumentsForProfile(
   | Readonly<{ readonly ok: true; readonly arguments: ValidatedToolArguments }>
   | Readonly<{ readonly ok: false; readonly code: StaticToolValidationCode }> {
   if (!knownToolName(name)) {
+    return Object.freeze({ ok: false, code: "unknown_tool" });
+  }
+  if (name === "web_search" && !webSearchAdmittedForProfile(profile)) {
     return Object.freeze({ ok: false, code: "unknown_tool" });
   }
   let parsed: unknown;
@@ -109,7 +139,7 @@ export function validateToolArgumentsForProfile(
   if (!isRecord(parsed)) {
     return Object.freeze({
       ok: false,
-      code: name === "edit" && profile === "edit-v5"
+      code: name === "edit" && activeEditProfile(profile)
         ? "wrong_type"
         : "invalid_arguments",
     });
@@ -159,7 +189,7 @@ export function validateToolArgumentsForProfile(
   }
 
   if (name === "edit") {
-    if (profile === "edit-v5") {
+    if (activeEditProfile(profile)) {
       const required = ["path", "old_string", "new_string"] as const;
       const allowed = [...required, "replace_all"] as const;
       const keys = Object.keys(parsed);
@@ -213,6 +243,27 @@ export function validateToolArgumentsForProfile(
           oldString: parsed["old_string"],
           newString: parsed["new_string"],
           replaceAll: parsed["replace_all"],
+        }),
+      }),
+    });
+  }
+
+  if (name === "web_search") {
+    if (
+      !hasRequiredAndOptionalKeys(parsed, ["search_query"], ["search_locale"]) ||
+      !scalar(parsed["search_query"], false) ||
+      (parsed["search_locale"] !== undefined &&
+        !scalar(parsed["search_locale"], false))
+    ) {
+      return Object.freeze({ ok: false, code: "invalid_arguments" });
+    }
+    return Object.freeze({
+      ok: true,
+      arguments: Object.freeze({
+        name,
+        value: Object.freeze({
+          searchQuery: parsed["search_query"],
+          searchLocale: (parsed["search_locale"] as string | undefined) ?? "",
         }),
       }),
     });

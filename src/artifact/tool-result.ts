@@ -22,7 +22,10 @@ import type {
 } from "../bytes/tool-result.js";
 import type { FrozenBytes } from "../bytes/types.js";
 import type { ToolName } from "../bytes/tool-arguments.js";
-import type { ToolSchemaProfile } from "../bytes/schemas.js";
+import {
+  activeEditProfile,
+  type ToolSchemaProfile,
+} from "../bytes/schemas.js";
 
 export interface ToolResultArtifactIdentity {
   readonly artifactId: string;
@@ -511,7 +514,7 @@ class StreamingArtifactToolResultProjector implements ArtifactToolResultProjecto
     this.#input = input;
     this.#display = new DisplayCollector(input.toolName, input.readOffset);
     this.#activeEditMatchCount =
-      input.toolsProfile === "edit-v5" &&
+      activeEditProfile(input.toolsProfile) &&
       input.toolName === "edit" &&
       input.terminalSource === "artifact" &&
       (input.terminal.code === "edit_no_match" ||
@@ -533,7 +536,8 @@ class StreamingArtifactToolResultProjector implements ArtifactToolResultProjecto
         if (
           (input.toolName === "read" && stream !== "read") ||
           (input.toolName === "bash" && stream === "read") ||
-          (input.toolName === "write" || input.toolName === "edit")
+          (input.toolName === "write" || input.toolName === "edit") ||
+          (input.toolName === "web_search" && stream !== "stdout")
         ) {
           projectionFailure("framed stream is not valid for the tool");
         }
@@ -541,9 +545,12 @@ class StreamingArtifactToolResultProjector implements ArtifactToolResultProjecto
       },
       hardLimit: (stream) => {
         if (
-          (input.toolName !== "read" && input.toolName !== "bash") ||
+          (input.toolName !== "read" &&
+            input.toolName !== "bash" &&
+            input.toolName !== "web_search") ||
           (input.toolName === "read" && stream !== "read") ||
-          (input.toolName === "bash" && stream === "read")
+          (input.toolName === "bash" && stream === "read") ||
+          (input.toolName === "web_search" && stream !== "stdout")
         ) {
           projectionFailure("hard-limit marker is not valid for the tool");
         }
@@ -610,7 +617,7 @@ class StreamingArtifactToolResultProjector implements ArtifactToolResultProjecto
       (terminal.code === "edit_no_match" ||
         terminal.code === "edit_not_unique");
     let matchCount: number | undefined;
-    if (input.toolsProfile === "edit-v5" && editMatchTerminal) {
+    if (activeEditProfile(input.toolsProfile) && editMatchTerminal) {
       if (
         !this.#activeEditMatchCount ||
         this.#matchCountOverflow ||

@@ -186,7 +186,7 @@ export class JournalToolDurability implements ActiveArtifactBindings {
 
   async prepare(
     toolCallId: ToolCallId,
-    toolName: Exclude<ToolName, "read">,
+    toolName: Exclude<ToolName, "read" | "web_search">,
     argumentsHash: Sha256,
   ): Promise<PreparedToolEffect> {
     const effectId = newEffectId();

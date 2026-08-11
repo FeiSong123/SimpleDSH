@@ -29,7 +29,9 @@ function toolSubject(name: string, argumentsJson: string): string | null {
   const raw =
     name === "bash"
       ? record["command"]
-      : (record["path"] ?? record["file_path"]);
+      : name === "web_search"
+        ? record["search_query"]
+        : (record["path"] ?? record["file_path"]);
   if (typeof raw !== "string") return null;
   const oneLine = raw.split("\n")[0] ?? "";
   const trimmed = oneLine.length > 68 ? `${oneLine.slice(0, 67)}…` : oneLine;

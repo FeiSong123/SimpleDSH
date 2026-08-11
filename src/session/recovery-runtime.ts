@@ -26,6 +26,7 @@ import {
   JournalToolDurability,
   type PublishedToolArtifact,
 } from "../tool/durability.js";
+import type { DeepSeekWebSearchExecutor } from "../ds/web-search.js";
 import { ToolRuntime } from "../tool/runtime.js";
 import type { RecoveryStepV1 } from "./recovery.js";
 
@@ -173,6 +174,7 @@ export async function resumeRecoveryToolV1(input: Readonly<{
   readonly sessionId: SessionId;
   readonly lineageId: LineageId;
   readonly signal: AbortSignal;
+  readonly webSearch: DeepSeekWebSearchExecutor;
 }>): Promise<void> {
   const calls = await loadAssistantCalls(
     input.opened.writer.events,
@@ -209,6 +211,7 @@ export async function resumeRecoveryToolV1(input: Readonly<{
       umask: 0o022,
       toolsProfile: binding.toolsProfile,
       resultProfile: binding.resultProfile,
+      webSearch: input.webSearch,
     }).execute(Object.freeze([call]), input.signal);
     if (results.length !== 1 || results[0]?.toolCallId !== call.id) {
       invalidRecoveryRuntime();

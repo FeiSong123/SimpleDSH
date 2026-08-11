@@ -17,6 +17,7 @@ import type {
 } from "../bytes/tool-result.js";
 import { FrozenBytes, freezeBytes } from "../bytes/types.js";
 import {
+  activeEditProfile,
   toolSchemaProfileForBytes,
   type ToolSchemaProfile,
 } from "../bytes/schemas.js";
@@ -390,7 +391,7 @@ function artifactResultMatches(
   const editMatch =
     terminal.code === "edit_no_match" || terminal.code === "edit_not_unique";
   const matchShape = editMatch
-    ? toolsProfile === "edit-v5"
+    ? activeEditProfile(toolsProfile)
       ? result.matchCount !== undefined &&
         (terminal.code === "edit_no_match"
           ? result.matchCount === 0
@@ -687,7 +688,7 @@ export function selectLineagePrefixV1(
                 event.payload.hardLimitReached,
               );
               const activeEditMatch =
-                call.toolsProfile === "edit-v5" &&
+                activeEditProfile(call.toolsProfile) &&
                 toolName === "edit" &&
                 (event.payload.terminal.code === "edit_no_match" ||
                   event.payload.terminal.code === "edit_not_unique");
@@ -705,8 +706,9 @@ export function selectLineagePrefixV1(
                   fail("active edit match observation metadata is invalid");
                 }
               } else if (
-                ((toolName !== "read") ||
-                  event.payload.terminal.code === "invalid_arguments") &&
+                ((toolName !== "read" && toolName !== "web_search") ||
+                  (toolName === "read" &&
+                    event.payload.terminal.code === "invalid_arguments")) &&
                 event.payload.byteCount !== 0
               ) {
                 fail("pre-effect observation Artifact is not empty");

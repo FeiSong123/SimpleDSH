@@ -144,8 +144,20 @@ by the time it runs, the verdict is `tampered` rather than `passed`. This
 detects rather than prevents — it cannot stop a model editing the tests, but it
 will not call that a pass.
 
-**Small on purpose.** Four tools, six runtime dependencies, no plugin system.
+**Small on purpose.** Five tools, six runtime dependencies, no plugin system.
 Things get added when there is a caller that fails without them.
+
+## Web search
+
+New sessions declare a `web_search` tool backed by DeepSeek's official web
+search. DeepSeek's search is a server-side `web_search` tool in the Responses
+API (`/responses`) — the chat completions API only accepts `function` tools and
+there is no client-side search endpoint. When the model decides the answer
+needs facts the workspace cannot provide, it calls `web_search` with a
+`search_query`; SimpleDSH sends one Responses API round with the same
+credential and the built-in `web_search` tool, and feeds the provider's
+search-grounded answer back as the tool result. Sessions opened before this
+feature keep their frozen tools ABI and never search.
 
 ## Bash execution boundary
 

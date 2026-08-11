@@ -26,6 +26,8 @@ import { decodeJournalRecord } from "../../src/journal/schema.js";
 import type { PersistenceTestControls } from "../../src/journal/faults.js";
 import type { AnyVerifiedJournalEvent } from "../../src/journal/types.js";
 import { openJournal } from "../../src/journal/open.js";
+import { buildCacheAbiV2 } from "../../src/lineage/cache-abi.js";
+import type { DeepSeekWebSearchResponse } from "../../src/ds/web-search.js";
 import {
   JournalToolDurability,
   ToolDurabilityError,
@@ -973,4 +975,182 @@ test("self-expiring detached escape completes with durable false cleanup observa
 
   await delay(1_500);
   assert.equal(await readFile(escapedMarker, "utf8"), "done");
+});
+
+function webSearchFixtureResponse(
+  searchId = "srch_fixture",
+): DeepSeekWebSearchResponse {
+  return Object.freeze({
+    searchId,
+    answer: "DeepSeek published the fixture headline story.",
+    queries: Object.freeze(["DeepSeek fixture query"]),
+    openedUrls: Object.freeze(["https://example.com/story"]),
+    usage: Object.freeze({
+      inputTokens: 100,
+      outputTokens: 40,
+      reasoningTokens: 10,
+    }),
+  });
+}
+
+test("web_search settles a provider search as a durable stdout observation", async (t) => {
+  const call = toolCall(
+    "call_web_search_ok",
+    "web_search",
+    JSON.stringify({
+      search_query: "DeepSeek 最新消息",
+      search_locale: "zh-CN",
+    }),
+  );
+  const received: Array<{ searchQuery: string; searchLocale: string }> = [];
+  const fixture = await createRuntimeFixture(t, [call], {
+    cacheAbi: buildCacheAbiV2(),
+    webSearch: async (input) => {
+      received.push({
+        searchQuery: input.searchQuery,
+        searchLocale: input.searchLocale ?? "",
+      });
+      return webSearchFixtureResponse();
+    },
+  });
+
+  const committed = await fixture.runtime.execute(
+    fixture.calls,
+    new AbortController().signal,
+  );
+  assert.equal(committed.length, 1);
+  assert.deepEqual(received, [
+    { searchQuery: "DeepSeek 最新消息", searchLocale: "zh-CN" },
+  ]);
+
+  const events = await eventsAfterAssistant(fixture);
+  assert.deepEqual(eventTypes(events), [
+    "permission_decided",
+    "artifact_published",
+    "tool_result_committed",
+  ]);
+  const artifact = events[1];
+  assert.equal(artifact?.type, "artifact_published");
+  if (artifact?.type !== "artifact_published") {
+    assert.fail("web search did not publish an Artifact");
+  }
+  assert.equal(artifact.payload.terminal?.status, "succeeded");
+  assert.equal(artifact.payload.terminal?.code, "ok");
+  assert.equal(artifact.payload.terminal?.exitCode, null);
+  assert.equal(artifact.payload.terminal?.signal, null);
+  assert.equal(artifact.payload.terminal?.descendantsReaped, null);
+  assert.equal(artifact.payload.hardLimitReached, false);
+
+  const expectedJson = JSON.stringify(webSearchFixtureResponse());
+  const streamBytes = artifact.payload.streamBytes;
+  assert.notEqual(streamBytes, null);
+  if (streamBytes === null) {
+    assert.fail("web search Artifact lacks stream bytes");
+  }
+  assert.equal(streamBytes.read, 0);
+  assert.equal(streamBytes.stderr, 0);
+  assert.equal(streamBytes.stdout, expectedJson.length);
+  const range = await fixture.opened.artifacts.readArtifactRange(
+    artifact.payload.artifactRef,
+    { offset: 0, maxBytes: artifact.payload.byteCount },
+  );
+  const framed: number[] = [];
+  const parser = createToolOutputFrameParser({
+    data(stream, bytes) {
+      assert.equal(stream, "stdout");
+      framed.push(...bytes);
+    },
+  });
+  parser.push(range.bytes);
+  assert.equal(parser.finish().recordCount, 1);
+  assert.equal(String.fromCharCode(...framed), expectedJson);
+
+  const result = results(events)[0];
+  assert.equal(result?.payload.toolCallId, call.id);
+  assert.equal(result?.payload.effectId, null);
+  assert.equal(result?.payload.artifactId, artifact.payload.artifactId);
+  const view = viewTool(committed[0]!.messageBytes);
+  assert.equal(view.toolCallId, call.id);
+  assert.equal(view.content.includes("srch_fixture"), true);
+  assert.equal(view.content.includes("published the fixture headline story"), true);
+});
+
+test("web_search omits the locale when the model left it out", async (t) => {
+  const call = toolCall(
+    "call_web_search_no_locale",
+    "web_search",
+    JSON.stringify({ search_query: "news" }),
+  );
+  const received: Array<{ searchQuery: string; searchLocale?: string }> = [];
+  const fixture = await createRuntimeFixture(t, [call], {
+    cacheAbi: buildCacheAbiV2(),
+    webSearch: async (input) => {
+      received.push({ ...input });
+      return webSearchFixtureResponse("srch_no_locale");
+    },
+  });
+  await fixture.runtime.execute(fixture.calls, new AbortController().signal);
+  assert.deepEqual(received, [{ searchQuery: "news" }]);
+});
+
+test("web_search provider failure settles as a failed io_error observation", async (t) => {
+  const call = toolCall(
+    "call_web_search_fail",
+    "web_search",
+    JSON.stringify({ search_query: "unreachable" }),
+  );
+  const fixture = await createRuntimeFixture(t, [call], {
+    cacheAbi: buildCacheAbiV2(),
+    webSearch: async () => {
+      throw new Error("web search HTTP 429");
+    },
+  });
+
+  const committed = await fixture.runtime.execute(
+    fixture.calls,
+    new AbortController().signal,
+  );
+  assert.equal(committed.length, 1);
+  const events = await eventsAfterAssistant(fixture);
+  assert.deepEqual(eventTypes(events), [
+    "permission_decided",
+    "artifact_published",
+    "tool_result_committed",
+  ]);
+  const artifact = events[1];
+  assert.equal(artifact?.type, "artifact_published");
+  if (artifact?.type !== "artifact_published") {
+    assert.fail("failed web search did not publish an Artifact");
+  }
+  assert.equal(artifact.payload.terminal?.status, "failed");
+  assert.equal(artifact.payload.terminal?.code, "io_error");
+  assert.equal(artifact.payload.terminal?.exitCode, null);
+  assert.equal(artifact.payload.terminal?.signal, null);
+  assert.equal(artifact.payload.terminal?.descendantsReaped, null);
+  const result = results(events)[0];
+  assert.equal(result?.payload.effectId, null);
+  assert.equal(result?.payload.artifactId, artifact.payload.artifactId);
+  const view = viewTool(committed[0]!.messageBytes);
+  assert.equal(view.content.includes("web search HTTP 429"), true);
+});
+
+test("web_search is unknown under the previous edit-v5 tools ABI", async (t) => {
+  const call = toolCall(
+    "call_web_search_legacy",
+    "web_search",
+    JSON.stringify({ search_query: "x" }),
+  );
+  const fixture = await createRuntimeFixture(t, [call]);
+  const committed = await fixture.runtime.execute(
+    fixture.calls,
+    new AbortController().signal,
+  );
+  assert.equal(committed.length, 1);
+  const events = await eventsAfterAssistant(fixture);
+  assert.deepEqual(eventTypes(events), ["tool_result_committed"]);
+  const result = results(events)[0];
+  assert.equal(result?.payload.effectId, null);
+  assert.equal(result?.payload.artifactId, null);
+  const view = viewTool(committed[0]!.messageBytes);
+  assert.equal(view.content, '{"status":"invalid","code":"unknown_tool"}');
 });

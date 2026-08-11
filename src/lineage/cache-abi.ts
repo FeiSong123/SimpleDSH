@@ -13,6 +13,7 @@ import {
 } from "../bytes/request.js";
 import {
   CANONICAL_TOOLS_BYTES,
+  PREVIOUS_CANONICAL_TOOLS_BYTES,
   toolSchemaProfileForBytes,
 } from "../bytes/schemas.js";
 import {
@@ -298,7 +299,9 @@ export function buildCacheAbiV1(
   projectInstructions?: FrozenBytes,
 ): FrozenCacheAbiManifest {
   const systemBlob = materializePreviousSystemMessage(projectInstructions);
-  const toolsBlob = copyFrozen(CANONICAL_TOOLS_BYTES);
+  // v1 is the historical builder: it must keep producing the previous edit-v5
+  // tools ABI so its byte-identical manifest and id stay loadable forever.
+  const toolsBlob = copyFrozen(PREVIOUS_CANONICAL_TOOLS_BYTES);
   const manifestBytes = manifestBytesFor(
     PROTOCOL_VERSION_V1_BYTES,
     systemBlob,
@@ -360,12 +363,12 @@ function loadCacheAbiForProtocol(
   const toolsProfile = toolSchemaProfileForBytes(fields.toolsBlob);
   const admitted =
     (protocolVersion === PROTOCOL_VERSION_V2 &&
-      toolsProfile === "edit-v5" &&
+      (toolsProfile === "search-v1" || toolsProfile === "edit-v5") &&
       (systemProfile === "current" ||
         systemProfile === "resolve" ||
         systemProfile === "previous")) ||
     (protocolVersion === PROTOCOL_VERSION_V1 &&
-      toolsProfile === "edit-v5" &&
+      (toolsProfile === "search-v1" || toolsProfile === "edit-v5") &&
       systemProfile === "previous") ||
     (protocolVersion === PROTOCOL_VERSION_V1 &&
       toolsProfile === "edit-v4" &&
