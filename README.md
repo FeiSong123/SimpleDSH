@@ -73,8 +73,25 @@ In interactive mode `Enter` sends and `Shift-Enter` adds a line. Typing while a
 turn is running queues the message: it is sent as the next turn once the current
 one closes, never spliced into a request already in flight. `Ctrl-C` interrupts
 the running turn, then clears the input, then clears the queue. `@` completes a
-workspace path, `/` lists the built-in commands, `↑`/`↓` walk earlier messages,
-`Ctrl-D` exits.
+workspace path, `↑`/`↓` walk earlier messages, `Ctrl-D` exits.
+
+`/` lists the built-in commands:
+
+```
+/help      keys and commands
+/clear     empty the screen, keep the conversation
+/compact   replace the conversation with a summary of itself
+/login     store a DeepSeek API key
+/logout    remove the stored key
+/session   show the current session id
+/exit      leave
+```
+
+`/clear` is display only — the session, its byte prefix and every durable fact
+are untouched, and the next turn is still a cache hit. `/compact` is the one
+that changes what gets sent; it also runs on its own once the prefix reaches
+512K prompt tokens, because the model gets noticeably worse as it approaches
+its 1M window.
 
 To let a command decide whether the work stands up:
 
@@ -103,6 +120,13 @@ one.
 **Interruption is a fact, not a crash.** A run that stops part-way closes at its
 last safe boundary. The next turn continues from there instead of replaying work
 that already happened.
+
+**Even compaction only appends.** Replacing a long conversation with a summary
+is the one operation that could be a rewrite, and it is not one. The model
+writes the summary on the lineage being replaced — so reading the whole history
+is still a cache hit — and only then does a new lineage start under the same
+frozen system prompt and tools. No byte is deleted or edited; the old prefix
+stays replayable and simply stops being sent.
 
 **The agent does not get to say it is done.** With `--verify`, a command's exit
 code decides. `--protect` names the paths that command depends on; if they moved
