@@ -23,6 +23,11 @@ const ESCAPE = "\u001b";
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const SPINNER_INTERVAL_MS = 90;
 
+interface Activity {
+  readonly label: string;
+  readonly paint: (text: string) => string;
+}
+
 export interface ScreenHandlers {
   /** Enter on a non-empty line. */
   readonly onSubmit: (text: string) => void;
@@ -63,7 +68,7 @@ export class Screen {
   #streamText = "";
   #ledger = "";
   #queued = 0;
-  #working = false;
+  #activity: Activity | null = null;
   #spinner: NodeJS.Timeout | null = null;
   #spinnerFrame = 0;
   #detachInput: (() => void) | null = null;
@@ -170,19 +175,27 @@ export class Screen {
     this.#tui.requestRender();
   }
 
-  /** A transient line above the editor. Replaced by the working indicator. */
+  /** A transient line above the editor. Replaced by whichever spinner is up. */
   note(text: string): void {
-    if (this.#working) return;
+    if (this.#activity !== null) return;
     this.#status.setText(text.length === 0 ? "" : color.dim(text));
     this.#tui.requestRender();
   }
 
-  setWorking(working: boolean): void {
-    if (working === this.#working) return;
-    this.#working = working;
-    if (!working) {
-      if (this.#spinner !== null) clearInterval(this.#spinner);
-      this.#spinner = null;
+  /**
+   * Turn the status row into a spinner, or clear it.
+   *
+   * One spinner, two meanings. Both use the same braille frames so the shape is
+   * familiar; the colour is what says which one is running, because compaction
+   * behaves differently — it is not the model working on your request, and
+   * interrupting it leaves the conversation as it was.
+   */
+  #spin(activity: Activity | null): void {
+    if (activity?.label === this.#activity?.label) return;
+    this.#activity = activity;
+    if (this.#spinner !== null) clearInterval(this.#spinner);
+    this.#spinner = null;
+    if (activity === null) {
       this.#status.setText("");
       this.#tui.requestRender();
       return;
@@ -190,7 +203,7 @@ export class Screen {
     this.#spinnerFrame = 0;
     const tick = (): void => {
       this.#status.setText(
-        `${color.tool(SPINNER[this.#spinnerFrame] ?? "")} ${color.dim("working — Ctrl-C to interrupt")}`,
+        `${activity.paint(SPINNER[this.#spinnerFrame] ?? "")} ${color.dim(activity.label)}`,
       );
       this.#spinnerFrame = (this.#spinnerFrame + 1) % SPINNER.length;
       this.#tui.requestRender();
@@ -198,6 +211,23 @@ export class Screen {
     tick();
     this.#spinner = setInterval(tick, SPINNER_INTERVAL_MS);
     this.#spinner.unref();
+  }
+
+  setWorking(working: boolean): void {
+    this.#spin(
+      working
+        ? { label: "working — Ctrl-C to interrupt", paint: color.tool }
+        : null,
+    );
+  }
+
+  /** The model is writing the handover note that replaces the conversation. */
+  setCompacting(compacting: boolean): void {
+    this.#spin(
+      compacting
+        ? { label: "compacting — writing a summary of this conversation", paint: color.compact }
+        : null,
+    );
   }
 
   get editorText(): string {
@@ -235,7 +265,7 @@ export class Screen {
       // its own completion list.
       if (
         data === ESCAPE &&
-        this.#working &&
+        this.#activity !== null &&
         !this.#editor.isShowingAutocomplete()
       ) {
         handlers.onInterrupt();

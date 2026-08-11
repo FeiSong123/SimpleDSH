@@ -15,6 +15,8 @@ export const color = Object.freeze({
   bold: paint("1"),
   /** The agent's own actions: reads, commands, edits. */
   tool: paint("36"),
+  /** Compaction: the harness replacing the conversation, not the model working. */
+  compact: paint("35"),
   ok: paint("32"),
   warn: paint("33"),
   error: paint("31"),

@@ -208,3 +208,24 @@ test("a stream started before a clear does not grow back into it", (t) => {
   assert.doesNotMatch(after, /first half second half/u);
   assert.match(after, /second half/u);
 });
+
+test("compacting shows its own spinner, distinct from working", (t) => {
+  // Same frames so the shape is familiar, different colour and words so it is
+  // obvious that this is the harness replacing the conversation rather than
+  // the model answering.
+  const { screen: view, terminal, drawn } = screen(t);
+  view.setWorking(true);
+  const working = drawn();
+  assert.match(working, /working/u);
+  assert.doesNotMatch(working, /compacting/u);
+
+  terminal.written = "";
+  view.setCompacting(true);
+  const compacting = drawn();
+  assert.match(compacting, /compacting/u);
+  assert.doesNotMatch(compacting.slice(-300), / working/u);
+
+  terminal.written = "";
+  view.setCompacting(false);
+  assert.doesNotMatch(drawn(), /compacting/u);
+});

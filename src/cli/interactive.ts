@@ -400,7 +400,7 @@ export class InteractiveSession {
     this.#screen.say(
       color.dim(`[compacting — ${cause}, ${tokens(before)} in context]`),
     );
-    this.#screen.setWorking(true);
+    this.#screen.setCompacting(true);
     try {
       const credential = loadDeepSeekCredential({
         projectRoot: this.#workspaceRoot,
@@ -438,7 +438,7 @@ export class InteractiveSession {
     } catch (error) {
       this.#screen.say(color.error(`[compaction failed: ${describe(error)}]`));
     } finally {
-      this.#screen.setWorking(false);
+      this.#screen.setCompacting(false);
       this.#compacting = false;
     }
   }
