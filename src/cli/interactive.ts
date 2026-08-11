@@ -31,6 +31,7 @@ import {
 } from "../session/compaction.js";
 import type { SlashCommand } from "../tui/index.js";
 import { runLogin, runLogout } from "./login.js";
+import { isKnownSlashCommand } from "./slash-command.js";
 import { isResumable, MAX_AUTO_RESUMES, withAutoResume } from "./resume.js";
 import { Screen } from "./screen.js";
 import { withTruncationContinuation } from "./truncation.js";
@@ -533,7 +534,9 @@ export class InteractiveSession {
     this.#screen.note("");
     if (text.length === 0) return;
     this.#screen.rememberSubmission(text);
-    if (text.startsWith("/")) {
+    // Only a known slash command leaves the queue; anything else starting
+    // with "/" is a prompt, so absolute paths work as ordinary input.
+    if (text.startsWith("/") && isKnownSlashCommand(text, COMMANDS, ["quit"])) {
       void this.#command(text);
       return;
     }
