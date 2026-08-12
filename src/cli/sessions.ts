@@ -309,17 +309,23 @@ export async function listSessions(
   } catch {
     return Object.freeze([]);
   }
-  const summaries: SessionSummary[] = [];
-  for (const entry of entries.sort()) {
-    if (!SESSION_ID.test(entry)) continue;
-    const sessionId = entry as SessionId;
-    // Fast structural path first; anything it cannot trust falls back to the
-    // fully verified replay (same result set, same order).
-    const summary =
-      (await summarizeFast(workspaceRoot, sessionId)) ??
-      (await summarize(workspaceRoot, sessionId));
-    if (summary !== null) summaries.push(summary);
-  }
+  const sessionIds = entries
+    .sort()
+    .filter((entry) => SESSION_ID.test(entry)) as SessionId[];
+  // Each session is read independently, so summarize them concurrently; the
+  // result set and order are decided after the await, not by the read order.
+  const summaries = (
+    await Promise.all(
+      sessionIds.map(async (sessionId) => {
+        // Fast structural path first; anything it cannot trust falls back to
+        // the fully verified replay (same result set, same order).
+        return (
+          (await summarizeFast(workspaceRoot, sessionId)) ??
+          (await summarize(workspaceRoot, sessionId))
+        );
+      }),
+    )
+  ).filter((summary): summary is SessionSummary => summary !== null);
   return Object.freeze(
     summaries.sort((left, right) =>
       (right.lastActivityAt ?? "").localeCompare(left.lastActivityAt ?? ""),
