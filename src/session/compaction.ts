@@ -48,18 +48,20 @@ const TURN_HEADROOM_TOKENS = 100_000;
 /**
  * Prompt tokens at which the interactive loop compacts on its own.
  *
- * Derived rather than chosen: the window has to hold the prefix, the response
- * this turn is about to produce, and then the summary, which is written on the
- * Lineage being replaced and so pays the full prefix again. What is left after
- * a turn's growth is the last size at which compacting is still guaranteed to
- * fit.
+ * Derived rather than chosen. Both paths out of the check give the same
+ * constraint. Below the threshold the turn runs and its largest request is the
+ * grown prefix plus a completion; at or above it the summary request goes out
+ * on a prefix that the previous turn had already grown by the same amount. So
+ * either way the window has to hold `threshold + one turn + one completion`,
+ * and one completion is all of them — a request has exactly one, and the
+ * summary's and an ordinary turn's are never the same request.
  *
  * This is the ceiling, not a recommendation. It says nothing about the quality
  * cost of a long prefix; a session that would rather compact early can say so
  * with `--auto-compact-tokens`.
  */
 export const DEFAULT_COMPACTION_THRESHOLD_TOKENS =
-  MODEL_CONTEXT_TOKENS - MAX_OUTPUT_TOKENS * 2 - TURN_HEADROOM_TOKENS;
+  MODEL_CONTEXT_TOKENS - MAX_OUTPUT_TOKENS - TURN_HEADROOM_TOKENS;
 
 export interface CompactionResult {
   readonly fromLineageId: LineageId;
