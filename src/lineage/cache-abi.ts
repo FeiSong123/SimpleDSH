@@ -178,6 +178,30 @@ function manifestBytesFor(
   ]);
 }
 
+/**
+ * The project instructions a frozen system blob carries, if any.
+ *
+ * A Lineage that changes its Cache ABI mid-Session — a different reasoning
+ * effort — has to carry the same instructions across. Re-reading the file would
+ * be wrong: the workspace may have changed since, and what this Session was
+ * told is what it froze.
+ */
+export function projectInstructionsFromSystemBlob(
+  systemBlob: FrozenBytes,
+): FrozenBytes | undefined {
+  let content: string;
+  try {
+    content = viewSystem(systemBlob).content;
+  } catch {
+    throw new TypeError("Cache ABI system blob does not round-trip canonically");
+  }
+  const marker = "\n\nProject instructions:\n";
+  const at = content.indexOf(marker);
+  if (at === -1) return undefined;
+  const instructions = content.slice(at + marker.length);
+  return instructions.length === 0 ? undefined : utf8Bytes(instructions);
+}
+
 function canonicalSystemBlobFor(
   systemBlob: FrozenBytes,
   content: string,

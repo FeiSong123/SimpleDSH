@@ -163,6 +163,22 @@ Inside the TUI:
 `↑` / `↓` walk through previous messages. Text entered during a running turn is
 queued for the next turn rather than spliced into an in-flight request.
 
+## Project Instructions
+
+A workspace can put its own rules in `AGENTS.md` at its root: the command that
+proves a change, the directories that are generated, the conventions worth
+matching. FlashCoder reads it once, when a session starts, and freezes it into
+that session's prefix — so it sits in front of every request, and after the
+first one it is a cache hit rather than a cost.
+
+Frozen means frozen. Editing the file does not change a session that is already
+running; the next new session picks it up. Only `AGENTS.md`, only the workspace
+root, no inheritance and no other filenames.
+
+It is capped at 16 KiB. A file that is unreadable, too large, or not valid
+UTF-8 stops startup instead of being quietly dropped — half a rule can say the
+opposite of the whole rule.
+
 ## Design
 
 ### Evidence, not reconstruction

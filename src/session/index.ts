@@ -1,4 +1,10 @@
 export {
+  loadProjectInstructions,
+  PROJECT_INSTRUCTIONS_FILE,
+  PROJECT_INSTRUCTIONS_LIMIT_BYTES,
+  ProjectInstructionsError,
+} from "./project-instructions.js";
+export {
   DEFAULT_RUN_BUDGET,
   RunBudget,
   RunBudgetExceeded,

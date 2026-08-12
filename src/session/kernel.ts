@@ -31,6 +31,7 @@ import {
   runDeepSeekOfficialWithRetry,
   type DeepSeekRetryLifecycle,
 } from "../ds/transport.js";
+import { loadProjectInstructions } from "./project-instructions.js";
 import {
   runDeepSeekWebSearch,
   type DeepSeekWebSearchExecutor,
@@ -714,7 +715,7 @@ async function loadRoleEventBytes(
   throw new SessionKernelError("invalid_state");
 }
 
-async function loadActiveCacheAbi(
+export async function loadActiveCacheAbi(
   opened: Awaited<ReturnType<typeof openJournal>>,
   lineageId: LineageId,
 ): Promise<FrozenCacheAbiManifest> {
@@ -992,7 +993,12 @@ async function initialize(
     }),
     "session_started",
   );
-  const cacheAbi = buildCacheAbiV2(undefined, input.reasoningEffort);
+  // The workspace's own rules join the frozen zone here, so they are part of
+  // this Session's Cache ABI and every later turn reads them as a cache hit.
+  const cacheAbi = buildCacheAbiV2(
+    loadProjectInstructions(input.workspaceRoot),
+    input.reasoningEffort,
+  );
   const manifest = await opened.artifacts.publishArtifact(cacheAbi.manifestBytes, {
     lineCount: null,
     mediaType: "application/octet-stream",

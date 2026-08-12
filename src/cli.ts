@@ -52,6 +52,7 @@ import {
   recoverOfficialSession,
   runOfficialSession,
   SessionInterruptedError,
+  ProjectInstructionsError,
   SessionKernelError,
   type CompletedSessionResult,
   type RunBudgetLimits,
@@ -407,6 +408,14 @@ function classifyFailure(error: unknown): CliFailure {
     return Object.freeze({
       message: `flashcoder: session_interrupted_${error.reason}\n`,
       exitCode: error.reason === "cancelled" ? 130 : 4,
+    });
+  }
+  if (error instanceof ProjectInstructionsError) {
+    // Says which file and what is wrong with it: the fix is always an edit to
+    // that file, and a code alone would not point at it.
+    return Object.freeze({
+      message: `flashcoder: ${error.message}\n`,
+      exitCode: 2,
     });
   }
   if (error instanceof SessionKernelError) {
