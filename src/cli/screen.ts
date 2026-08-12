@@ -456,40 +456,32 @@ export class Screen {
    * running turn while the editor holds focus. Everything else falls through.
    */
   /**
-   * Ask tmux whether its mouse option is on. With the option off the wheel
-   * and click-drag do nothing useful in tmux; the check runs once at startup
-   * and never blocks the screen.
+   * Ask tmux whether its mouse option is on, and turn it on when it is not.
+   *
+   * The wheel and click-drag only work in tmux when mouse mode is on, so
+   * enabling it for this window (not globally) is the difference between the
+   * feature working out of the box and asking the operator to edit their
+   * tmux.conf. set-clipboard is enabled for this session so OSC 52 copies
+   * reach the outer terminal. Both checks run once at startup and never
+   * block the screen.
    */
   #probeTmuxMouse(): void {
-    let proc: ReturnType<typeof spawn>;
     try {
-      proc = spawn("tmux", ["show", "-gv", "mouse"], {
-        stdio: ["ignore", "pipe", "ignore"],
+      spawn("tmux", ["set", "-w", "mouse", "on"], {
+        stdio: "ignore",
+      }).once("error", () => {
+        this.#tmuxWheelHint = true;
+        this.#maybeShowTmuxHint();
       });
+      spawn("tmux", ["set", "-s", "set-clipboard", "on"], {
+        stdio: "ignore",
+      });
+      this.#tmuxWheelHint = false;
+      return;
     } catch {
       this.#tmuxWheelHint = true;
       this.#maybeShowTmuxHint();
-      return;
     }
-    let stdout = "";
-    const timer = setTimeout(() => {
-      proc.kill();
-      this.#tmuxWheelHint = true;
-      this.#maybeShowTmuxHint();
-    }, 500);
-    proc.stdout?.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    proc.on("error", () => {
-      clearTimeout(timer);
-      this.#tmuxWheelHint = true;
-      this.#maybeShowTmuxHint();
-    });
-    proc.on("close", () => {
-      clearTimeout(timer);
-      this.#tmuxWheelHint = stdout.trim() !== "on";
-      this.#maybeShowTmuxHint();
-    });
   }
 
   /** Show the tmux hint once, briefly, if the probe answered "off". */

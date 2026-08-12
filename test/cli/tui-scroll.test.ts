@@ -192,6 +192,26 @@ function screenWithHistory(t: { after: (fn: () => void) => void }): {
   return { screen: instance, terminal, drawn };
 }
 
+test("mouse selection maps the screen row through the viewport top", (t) => {
+  const { tui, terminal, drawn } = tallTui(t);
+  drawn(); // settle: rows 30..39 are on screen, viewportTop is 30
+  // Select the top visible row (screen row 0) through one character.
+  tui.beginSelection(0, 1);
+  tui.extendSelection(0, 7);
+  const text = tui.endSelection();
+  // The top visible row is content line 30, not line 0. Column 0 is the
+  // one-cell padding, so columns 1..6 are the text "line 3".
+  assert.equal(text, "line 3");
+  // The highlighted render rewrote the selected row.
+  terminal.written = "";
+  tui.beginSelection(0, 1);
+  tui.extendSelection(0, 7);
+  const highlighted = drawn();
+  assert.match(highlighted, /line 3/u);
+  tui.endSelection();
+  drawn();
+});
+
 test("a wheel report scrolls the transcript, a click does not type", (t) => {
   const { terminal, drawn } = screenWithHistory(t);
   drawn(); // settle

@@ -108,12 +108,15 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	 * column). False when the row is outside the rendered window.
 	 */
 	beginSelection(screenRow: number, screenCol: number): boolean {
-		if (screenRow < 0 || screenRow >= this.previousLines.length) {
+		// The mouse reports a physical screen row; map it to a line index in
+		// previousLines through the current viewport top.
+		const line = screenRow + this.previousViewportTop;
+		if (line < 0 || line >= this.previousLines.length) {
 			this.clearSelection();
 			return false;
 		}
 		const point = Object.freeze({
-			line: screenRow,
+			line,
 			col: Math.max(0, screenCol),
 		});
 		this.selectionAnchor = point;
@@ -125,9 +128,10 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	/** Extend the active selection to a visible screen position. */
 	extendSelection(screenRow: number, screenCol: number): void {
 		if (this.selectionAnchor === null) return;
+		const line = screenRow + this.previousViewportTop;
 		const clampedRow = Math.max(
 			0,
-			Math.min(screenRow, this.previousLines.length - 1),
+			Math.min(line, this.previousLines.length - 1),
 		);
 		this.selectionHead = Object.freeze({
 			line: clampedRow,
