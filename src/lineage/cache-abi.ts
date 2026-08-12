@@ -425,7 +425,9 @@ function loadCacheAbiForProtocol(
   const toolsProfile = toolSchemaProfileForBytes(fields.toolsBlob);
   const admitted =
     (protocolVersion === PROTOCOL_VERSION_V2 &&
-      (toolsProfile === "search-v1" || toolsProfile === "edit-v5") &&
+      (toolsProfile === "read-v2" ||
+        toolsProfile === "search-v1" ||
+        toolsProfile === "edit-v5") &&
       (systemProfile === "current" ||
         systemProfile === "rc1" ||
         systemProfile === "rc2" ||
@@ -435,7 +437,9 @@ function loadCacheAbiForProtocol(
       toolsProfile === "edit-v5" &&
       systemProfile === "preceding") ||
     (protocolVersion === PROTOCOL_VERSION_V1 &&
-      (toolsProfile === "search-v1" || toolsProfile === "edit-v5") &&
+      (toolsProfile === "read-v2" ||
+        toolsProfile === "search-v1" ||
+        toolsProfile === "edit-v5") &&
       systemProfile === "previous") ||
     (protocolVersion === PROTOCOL_VERSION_V1 &&
       toolsProfile === "edit-v4" &&

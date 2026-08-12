@@ -23,6 +23,7 @@ import {
 } from "../bytes/schemas.js";
 import {
   validateToolCallForProfile,
+  webSearchAdmittedForProfile,
   type ToolCallValidation,
   type ToolName,
   type ValidatedToolArguments,
@@ -55,6 +56,7 @@ import {
   type FileMutationControls,
   type FileObservationFailure,
   type FileToolBoundary,
+  type ReadOutcome,
 } from "./file.js";
 import {
   JournalToolDurability,
@@ -123,7 +125,7 @@ export interface ToolRuntimeOptions {
   readonly resultProfile: ToolResultProfile;
   /**
    * Executes a model-declared web_search call against the provider's official
-   * search endpoint. Required exactly when the tools profile is search-v1;
+   * search endpoint. Required exactly when the tools profile declares it;
    * older profiles can never validate a web_search call, so they need none.
    */
   readonly webSearch?: DeepSeekWebSearchExecutor;
@@ -331,8 +333,8 @@ export class ToolRuntime {
     this.#toolsProfile = options.toolsProfile;
     this.#resultProfile = options.resultProfile;
     this.#webSearch = options.webSearch;
-    if (options.toolsProfile === "search-v1" && this.#webSearch === undefined) {
-      throw new TypeError("search-v1 tools require a web search executor");
+    if (webSearchAdmittedForProfile(options.toolsProfile) && this.#webSearch === undefined) {
+      throw new TypeError("these tools require a web search executor");
     }
   }
 
@@ -486,13 +488,18 @@ export class ToolRuntime {
       return this.#durability.interruptRun("durability_failure", permission.id);
     }
     const writer = createToolOutputFrameWriter(sink);
-    let failure: FileObservationFailure | undefined;
+    let outcome: ReadOutcome;
     try {
-      failure = await executeReadFile(
+      outcome = await executeReadFile(
         this.#fileBoundary,
         subject,
         args.value,
         writer,
+        // The marker goes into the Artifact, which is what makes it a durable
+        // fact the binding validator can rebuild the result from. Result
+        // metadata cannot carry it: the projection has to be a pure function
+        // of what was recorded, and "the file went on" is not in the bytes.
+        { markMoreFollows: true },
       );
     } catch (error) {
       await sink.abort().catch(() => undefined);
@@ -513,9 +520,9 @@ export class ToolRuntime {
     }
     const resultTerminal = summary.hardLimitReached
       ? terminal("succeeded", "ok")
-      : failure === undefined
+      : outcome.failure === undefined
         ? terminal("succeeded", "ok")
-        : failureTerminal(failure);
+        : failureTerminal(outcome.failure);
     let artifact: PublishedToolArtifact;
     try {
       artifact = await this.#durability.publish(

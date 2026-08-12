@@ -139,7 +139,7 @@ test("protocol v2 changes only the closed protocol frame for new Sessions", () =
   // to be a signed act rather than a side effect.
   assert.equal(
     v2.cacheAbiId,
-    "sha256:39669589633b50d7d48d7b08bacb652cc4b0cf193b4e79ed764c1639b7e7bcfe",
+    "sha256:1fcba3aa1ea2f4da63fe40b0ea7ab7a3a14b8c0b8b8d47b08e46acec407e0fb1",
   );
   assert.equal(v2.projectorVersion, PROJECTOR_VERSION_V1);
   assert.equal(bytesEqual(v2.modelTupleBytes, v1.modelTupleBytes), true);

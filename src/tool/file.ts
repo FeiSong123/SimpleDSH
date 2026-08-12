@@ -617,6 +617,16 @@ class RecordSliceWriter {
  * fact about the observation rather than the file — the right one is beside
  * `truncated` in the result metadata, and that is a Cache ABI change.
  */
+/** Where a follow-up read would start, or null when the slice reached the end. */
+function continuationOffset(
+  slicer: RecordSliceWriter,
+  argumentsValue: ReadArguments,
+): number | null {
+  return slicer.moreFollows
+    ? argumentsValue.offset + argumentsValue.limit
+    : null;
+}
+
 async function noteMoreFollows(
   writer: ToolOutputFrameWriter,
   slicer: RecordSliceWriter,
@@ -639,13 +649,16 @@ async function streamOrdinaryRead(
   subject: Extract<ResolvedFileSubject, { readonly kind: "path" }>,
   argumentsValue: ReadArguments,
   writer: ToolOutputFrameWriter,
-): Promise<FileObservationFailure | undefined> {
+  markMoreFollows: boolean,
+): Promise<ReadOutcome> {
   const base = await canonicalPathGuard(boundary, subject.lexicalPath);
-  if ("status" in base) return base;
+  if ("status" in base) return { failure: base, nextOffset: null };
   const inspected = await inspectExisting(base, false, undefined, false);
-  if ("status" in inspected) return inspected;
+  if ("status" in inspected) return { failure: inspected, nextOffset: null };
   const expected = inspected.existing;
-  if (expected === null) return settled("failed", "io_error");
+  if (expected === null) {
+    return { failure: settled("failed", "io_error"), nextOffset: null };
+  }
   let handle: FileHandle | undefined;
   const slicer = new RecordSliceWriter(writer, argumentsValue.offset, argumentsValue.limit);
   try {
@@ -655,7 +668,7 @@ async function streamOrdinaryRead(
     );
     const opened = await handle.stat();
     if (!sameIdentity(opened, expected)) {
-      return settled("failed", "io_error");
+      return { failure: settled("failed", "io_error"), nextOffset: null };
     }
     const buffer = new Uint8Array(READ_CHUNK_BYTES);
     let position = 0;
@@ -665,11 +678,11 @@ async function streamOrdinaryRead(
       await slicer.push(buffer.subarray(0, read.bytesRead));
       position += read.bytesRead;
     }
-    await noteMoreFollows(writer, slicer, argumentsValue);
-    return undefined;
+    if (markMoreFollows) await noteMoreFollows(writer, slicer, argumentsValue);
+    return { nextOffset: continuationOffset(slicer, argumentsValue) };
   } catch (error) {
     if (error instanceof FileToolOutputError) throw error;
-    return settled("failed", "io_error");
+    return { failure: settled("failed", "io_error"), nextOffset: null };
   } finally {
     await handle?.close().catch(() => undefined);
   }
@@ -679,7 +692,8 @@ async function streamArtifactRead(
   binding: BoundReadArtifact,
   argumentsValue: ReadArguments,
   writer: ToolOutputFrameWriter,
-): Promise<void> {
+  markMoreFollows: boolean,
+): Promise<ReadOutcome> {
   try {
     const slicer = new RecordSliceWriter(writer, argumentsValue.offset, argumentsValue.limit);
     const framed = binding.descriptor.artifactType === "tool_output";
@@ -706,7 +720,8 @@ async function streamArtifactRead(
     if (parser !== undefined) {
       parser.finish();
     }
-    await noteMoreFollows(writer, slicer, argumentsValue);
+    if (markMoreFollows) await noteMoreFollows(writer, slicer, argumentsValue);
+    return { nextOffset: continuationOffset(slicer, argumentsValue) };
   } catch (error) {
     if (
       error instanceof FileToolIntegrityError ||
@@ -718,20 +733,32 @@ async function streamArtifactRead(
   }
 }
 
+export interface ReadOutcome {
+  readonly failure?: FileObservationFailure;
+  /**
+   * The line to continue from when the slice stopped before the end of the
+   * file, and null when it did not. Only a Lineage whose tools ABI declares
+   * `next_offset` can carry it; older ones get the same fact as a line of
+   * output instead, which is why `markMoreFollows` exists.
+   */
+  readonly nextOffset: number | null;
+}
+
 export async function executeReadFile(
   boundary: FileToolBoundary,
   subject: ResolvedFileSubject,
   argumentsValue: ReadArguments,
   writer: ToolOutputFrameWriter,
-): Promise<FileObservationFailure | undefined> {
+  options: Readonly<{ markMoreFollows?: boolean }> = {},
+): Promise<ReadOutcome> {
   if (subject.directDecision !== "allow") {
     throw new TypeError("read execution requires an allowed subject");
   }
+  const mark = options.markMoreFollows ?? false;
   if (subject.kind === "artifact") {
-    await streamArtifactRead(subject.binding, argumentsValue, writer);
-    return undefined;
+    return streamArtifactRead(subject.binding, argumentsValue, writer, mark);
   }
-  return streamOrdinaryRead(boundary, subject, argumentsValue, writer);
+  return streamOrdinaryRead(boundary, subject, argumentsValue, writer, mark);
 }
 
 async function syncParent(path: string): Promise<void> {
