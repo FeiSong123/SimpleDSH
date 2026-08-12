@@ -502,6 +502,12 @@ export class Screen {
     timer.unref();
   }
 
+  /** Copy text to the system clipboard via the OSC 52 escape sequence. */
+  #copySelection(text: string): void {
+    const base64 = Buffer.from(text, "utf8").toString("base64");
+    this.#tui.terminal.write(`\x1b]52;c;${base64}\x07`);
+  }
+
   attach(handlers: ScreenHandlers): void {
     // In tmux the wheel and click-drag belong to tmux, and only work with
     // its mouse option on. Say so once, briefly, at startup.
@@ -583,8 +589,24 @@ export class Screen {
       // would type garbage into the editor.
       const mouse = parseSgrMouseEvent(data);
       if (mouse !== null) {
-        if (isWheelUp(mouse)) this.#tui.scrollBy(WHEEL_SCROLL_LINES);
-        else if (isWheelDown(mouse)) this.#tui.scrollBy(-WHEEL_SCROLL_LINES);
+        if (isWheelUp(mouse)) {
+          this.#tui.scrollBy(WHEEL_SCROLL_LINES);
+        } else if (isWheelDown(mouse)) {
+          this.#tui.scrollBy(-WHEEL_SCROLL_LINES);
+        } else if (mouse.button === 0) {
+          // Left button: click-drag selects text inside the rendered window.
+          // The selection is highlighted live and copied to the system
+          // clipboard (OSC 52) on release, which tmux forwards when its
+          // set-clipboard option is on.
+          if (mouse.press && !mouse.motion) {
+            this.#tui.beginSelection(mouse.y - 1, mouse.x - 1);
+          } else if (mouse.press && mouse.motion) {
+            this.#tui.extendSelection(mouse.y - 1, mouse.x - 1);
+          } else if (!mouse.press) {
+            const selected = this.#tui.endSelection();
+            if (selected !== null) this.#copySelection(selected);
+          }
+        }
         return { consume: true };
       }
       // PageUp/PageDown move one viewport, Home/End jump to the edges.

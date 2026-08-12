@@ -8,7 +8,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { deleteKittyImage, isImageLine } from "./terminal-image.js";
 import { type TUI, TuiBase, type TuiStopOptions } from "./tui.js";
-import { visibleWidth } from "./utils.js";
+import {
+	sliceByColumn,
+	stripTerminalSequences,
+	visibleWidth,
+} from "./utils.js";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
 
@@ -72,6 +76,9 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	private previousViewportTop = 0;
 	/** True while the screen is showing a history window rather than the newest content. */
 	private scrollModeActive = false;
+	/** Mouse selection: 0-based line/column into the visible window, or null when inactive. */
+	private selectionAnchor: { readonly line: number; readonly col: number } | null = null;
+	private selectionHead: { readonly line: number; readonly col: number } | null = null;
 
 	captureRenderState(): TuiMainScreenRenderState {
 		return {
@@ -94,6 +101,131 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		this.hardwareCursorRow = state.hardwareCursorRow;
 		this.maxLinesRendered = state.maxLinesRendered;
 		this.previousViewportTop = state.previousViewportTop;
+	}
+
+	/**
+	 * Start a mouse selection at a visible screen position (0-based row and
+	 * column). False when the row is outside the rendered window.
+	 */
+	beginSelection(screenRow: number, screenCol: number): boolean {
+		if (screenRow < 0 || screenRow >= this.previousLines.length) {
+			this.clearSelection();
+			return false;
+		}
+		const point = Object.freeze({
+			line: screenRow,
+			col: Math.max(0, screenCol),
+		});
+		this.selectionAnchor = point;
+		this.selectionHead = point;
+		this.requestRender();
+		return true;
+	}
+
+	/** Extend the active selection to a visible screen position. */
+	extendSelection(screenRow: number, screenCol: number): void {
+		if (this.selectionAnchor === null) return;
+		const clampedRow = Math.max(
+			0,
+			Math.min(screenRow, this.previousLines.length - 1),
+		);
+		this.selectionHead = Object.freeze({
+			line: clampedRow,
+			col: Math.max(0, screenCol),
+		});
+		this.requestRender();
+	}
+
+	/** Finish the selection, return its plain text (null when empty), and clear it. */
+	endSelection(): string | null {
+		const text = this.extractSelectionText();
+		this.clearSelection();
+		return text;
+	}
+
+	clearSelection(): void {
+		if (this.selectionAnchor === null) return;
+		this.selectionAnchor = null;
+		this.selectionHead = null;
+		this.requestRender();
+	}
+
+	hasSelection(): boolean {
+		return this.selectionAnchor !== null;
+	}
+
+	private orderedSelection(): {
+		readonly start: { readonly line: number; readonly col: number };
+		readonly end: { readonly line: number; readonly col: number };
+	} | null {
+		const anchor = this.selectionAnchor;
+		const head = this.selectionHead;
+		if (anchor === null || head === null) return null;
+		if (anchor.line === head.line && anchor.col === head.col) return null;
+		const flipped =
+			anchor.line > head.line ||
+			(anchor.line === head.line && anchor.col > head.col);
+		return flipped
+			? { start: head, end: anchor }
+			: { start: anchor, end: head };
+	}
+
+	/** The selected span of one visible line, or null when outside the selection. */
+	private selectionSpan(
+		lineIndex: number,
+		selection: { readonly start: { readonly line: number; readonly col: number }; readonly end: { readonly line: number; readonly col: number } },
+	): { readonly from: number; readonly to: number } | null {
+		if (lineIndex < selection.start.line || lineIndex > selection.end.line) {
+			return null;
+		}
+		return {
+			from: lineIndex === selection.start.line ? selection.start.col : 0,
+			to: lineIndex === selection.end.line ? selection.end.col : Number.MAX_SAFE_INTEGER,
+		};
+	}
+
+	/** Apply reverse-video highlight to the selected spans of the visible window. */
+	private applySelectionHighlight(lines: string[]): string[] {
+		const selection = this.orderedSelection();
+		if (selection === null) return lines;
+		return lines.map((line, index) => {
+			const span = this.selectionSpan(index, selection);
+			if (span === null) return line;
+			const width = visibleWidth(line);
+			const from = Math.min(span.from, width);
+			const to = Math.min(span.to, width);
+			if (to <= from) return line;
+			const before = sliceByColumn(line, 0, from);
+			const selected = stripTerminalSequences(sliceByColumn(line, from, to - from));
+			const after = sliceByColumn(line, to, Math.max(0, width - to));
+			return `${before}\x1b[0m\x1b[7m${selected}\x1b[27m${after}`;
+		});
+	}
+
+	/** The selected text, stripped of ANSI codes, or null when empty. */
+	private extractSelectionText(): string | null {
+		const selection = this.orderedSelection();
+		if (selection === null) return null;
+		const lines: string[] = [];
+		for (
+			let lineIndex = selection.start.line;
+			lineIndex <= selection.end.line;
+			lineIndex += 1
+		) {
+			const line = this.previousLines[lineIndex] ?? "";
+			const span = this.selectionSpan(lineIndex, selection);
+			if (span === null) continue;
+			const width = visibleWidth(line);
+			const from = Math.min(span.from, width);
+			const to = Math.min(span.to, width);
+			lines.push(
+				stripTerminalSequences(
+					sliceByColumn(line, from, Math.max(0, to - from)),
+				).trimEnd(),
+			);
+		}
+		const text = lines.join("\n");
+		return text.trim().length > 0 ? text : null;
 	}
 
 	protected override resetRenderState(): void {
@@ -302,6 +434,14 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			const start = newLines.length - height - targetOffset;
 			newLines = newLines.slice(start, start + height);
 			while (newLines.length < height) newLines.push("");
+		}
+
+		// Mouse selection highlight is applied to the visible window before any
+		// render path, so first render, full redraw and differential updates all
+		// show it. The highlighted lines are also what previousLines records, so
+		// moving or clearing the selection re-renders exactly the changed rows.
+		if (this.selectionAnchor !== null) {
+			newLines = this.applySelectionHighlight(newLines);
 		}
 
 		// First render - just output everything without clearing (assumes clean screen)
