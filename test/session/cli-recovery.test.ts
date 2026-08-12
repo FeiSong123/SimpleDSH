@@ -415,7 +415,13 @@ test("recover refuses a stale writer lease until its exact inspected fingerprint
   const refused = runCli(["recover", id], root);
   assert.equal(refused.status, 5);
   assert.equal(refused.stdout, "");
-  assert.equal(refused.stderr, "flashcoder: journal_lease_held\n");
+  // The refusal is the point, but so is telling the operator what to do next:
+  // taking a lease is deliberate, and the code alone left nobody a way to find
+  // out what has to be named.
+  assert.match(refused.stderr, /^flashcoder: journal_lease_held\n/u);
+  assert.match(refused.stderr, /--quarantine-fingerprint/u);
+  assert.match(refused.stderr, /--confirm-no-concurrent-start/u);
+  assert.match(refused.stderr, /flashcoder inspect <session-id>/u);
   assert.deepEqual(await treeSnapshot(root), beforeRefusal);
 
   const recovered = runCli([

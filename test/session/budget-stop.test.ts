@@ -117,52 +117,8 @@ async function eventsOf(
   }
 }
 
-test("a model stuck in a tool loop is stopped by the round limit", async (t) => {
-  const root = await workspace(t, "rounds");
-  const id = sessionId("1");
-  await writeFile(join(root, "loop.txt"), "body\n", "utf8");
-  const budget = new RunBudget(
-    { ...DEFAULT_RUN_BUDGET, maxToolRounds: 4 },
-    PRICE,
-  );
-
-  await assert.rejects(
-    runSessionFixture({
-      workspaceRoot: root,
-      sessionId: id,
-      userInput: "Look at loop.txt.",
-      // Far more turns than the budget allows; the budget must stop first.
-      turns: Array.from({ length: 40 }, (_, index) => endlessReadTurn(index)),
-      clock: fixedClock,
-      eventIds: eventIds("a"),
-      acceptanceBudget: budget,
-    }),
-    (error: unknown) =>
-      error instanceof SessionAcceptanceBudgetError ||
-      error instanceof RunBudgetExceeded,
-  );
-
-  assert.equal(budget.stopped?.stop, "tool_rounds");
-  assert.equal(budget.usage.toolRounds, 4);
-
-  // The Journal is intact and closed: exactly four assistants were committed
-  // and the Run ends with an interruption, not a half-written turn.
-  const events = await eventsOf(root, id);
-  assert.equal(
-    events.filter((event) => event.type === "assistant_committed").length,
-    4,
-  );
-  assert.equal(
-    events.filter((event) => event.type === "run_interrupted").length,
-    1,
-  );
-  assert.equal(
-    events.filter((event) => event.type === "run_completed").length,
-    0,
-  );
-});
-
-test("the cost limit stops the same loop even with rounds to spare", async (t) => {
+test("a model stuck in a tool loop is stopped by the cost limit", async (t) => {
+  // Rounds are not capped; what ends a runaway is the money it spends.
   const root = await workspace(t, "cost");
   const id = sessionId("2");
   await writeFile(join(root, "loop.txt"), "body\n", "utf8");
@@ -170,7 +126,6 @@ test("the cost limit stops the same loop even with rounds to spare", async (t) =
   const budget = new RunBudget(
     {
       ...DEFAULT_RUN_BUDGET,
-      maxToolRounds: 100,
       maxCostPicodollars: 70_000_000n,
     },
     PRICE,
@@ -195,6 +150,22 @@ test("the cost limit stops the same loop even with rounds to spare", async (t) =
   // Two responses stay under 70,000,000; the third check refuses to send.
   assert.equal(budget.usage.toolRounds, 3);
   assert.equal(budget.usage.costPicodollars, 91_560_000n);
+
+  // The Journal is intact and closed: the Run ends with an interruption, not a
+  // half-written turn.
+  const events = await eventsOf(root, id);
+  assert.equal(
+    events.filter((event) => event.type === "assistant_committed").length,
+    3,
+  );
+  assert.equal(
+    events.filter((event) => event.type === "run_interrupted").length,
+    1,
+  );
+  assert.equal(
+    events.filter((event) => event.type === "run_completed").length,
+    0,
+  );
 });
 
 test("a turn inside the budget still completes normally", async (t) => {
@@ -223,7 +194,7 @@ test("a turn inside the budget still completes normally", async (t) => {
     ]),
   });
   const budget = new RunBudget(
-    { ...DEFAULT_RUN_BUDGET, maxToolRounds: 10 },
+    { ...DEFAULT_RUN_BUDGET },
     PRICE,
   );
 

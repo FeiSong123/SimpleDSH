@@ -53,7 +53,6 @@ shown to the model, only its output when it fails:
        --verify-timeout <sec>    default 600
 
 Turn budget (interactive/continue only; each turn stops cleanly at a boundary):
-       --max-tool-rounds <n>     default 50
        --max-cost-usd <amount>   default 1
        --max-minutes <n>         default 30
        --auto-compact-tokens <n> replace the conversation with a summary once

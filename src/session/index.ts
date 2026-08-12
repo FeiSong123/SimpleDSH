@@ -19,6 +19,7 @@ export {
   SessionKernelError,
   SessionAcceptanceBudgetError,
   captureSessionEnvironment,
+  captureTurnEnvironment,
   GIT_STATUS_ENTRY_LIMIT,
   TREE_ENTRY_LIMIT,
   continueOfficialSession,
