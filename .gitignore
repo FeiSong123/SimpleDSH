@@ -27,11 +27,11 @@ PLANS.md
 # Release artifacts
 release/
 
-# Local agent/editor state, not part of the source
+# bash children run with HOME set to the workspace, so anything that writes to
+# $HOME lands here. That is how .npm/ reached this repository in the first place.
 .ipython/
 .local/
 .prime/
 Library/
 package-lock.json
 .npm/
-iphone-buying-guide-2026-08.md
