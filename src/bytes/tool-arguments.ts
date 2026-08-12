@@ -165,7 +165,10 @@ export function validateToolArgumentsForProfile(
         value: Object.freeze({
           path: parsed["path"],
           offset: (parsed["offset"] as number | undefined) ?? 0,
-          limit: (parsed["limit"] as number | undefined) ?? 200,
+          // A thousand lines is about the 32 KiB the projection will send
+          // whole, and covers nine files in ten. Two hundred covered half of
+          // them and said nothing about the rest.
+          limit: (parsed["limit"] as number | undefined) ?? 1_000,
         }),
       }),
     });

@@ -525,12 +525,27 @@ export async function preflightFileMutation(
   });
 }
 
+/**
+ * Writes the requested lines, and notices whether the file went on.
+ *
+ * The slice used to stop the instant it had enough, which meant it never
+ * learned there was more — so a `read` of the first two hundred lines of a
+ * fifteen hundred line file came back looking exactly like a complete file.
+ * The projection's `truncated` flag says something else entirely: that the
+ * result was too large to send whole. A bounded slice under that size is not
+ * truncated by it, so nothing contradicted the reading that this was the end.
+ *
+ * It now scans one byte past the slice before stopping. That is enough to say
+ * whether the end of the slice was the end of the file, and costs nothing.
+ */
 class RecordSliceWriter {
   readonly #writer: ToolOutputFrameWriter;
   readonly #offset: number;
   readonly #end: number;
   #record = 0;
   #stopped = false;
+  #filled = false;
+  #moreFollows = false;
 
   constructor(writer: ToolOutputFrameWriter, offset: number, limit: number) {
     this.#writer = writer;
@@ -542,8 +557,20 @@ class RecordSliceWriter {
     return this.#stopped;
   }
 
+  /** True when the file had content past the end of the slice. */
+  get moreFollows(): boolean {
+    return this.#moreFollows;
+  }
+
   async push(chunk: Uint8Array): Promise<void> {
-    if (this.#stopped || chunk.byteLength === 0) return;
+    if (this.#stopped) return;
+    if (this.#filled) {
+      // The slice is full; one byte is all it takes to know the file goes on.
+      if (chunk.byteLength > 0) this.#moreFollows = true;
+      this.#stopped = true;
+      return;
+    }
+    if (chunk.byteLength === 0) return;
     let cursor = 0;
     while (cursor < chunk.byteLength && !this.#stopped) {
       const lf = chunk.indexOf(0x0a, cursor);
@@ -566,9 +593,44 @@ class RecordSliceWriter {
       cursor = end;
       if (lf !== -1) {
         this.#record += 1;
-        if (this.#record >= this.#end) this.#stopped = true;
+        if (this.#record >= this.#end) {
+          this.#filled = true;
+          if (cursor < chunk.byteLength) {
+            this.#moreFollows = true;
+            this.#stopped = true;
+          }
+          return;
+        }
       }
     }
+  }
+}
+
+/**
+ * The line that says the slice was not the file.
+ *
+ * It carries the offset to continue from, because the alternative is the model
+ * working it out from the last line number it happened to see.
+ *
+ * It goes in the content stream, which numbers every line, so the marker takes
+ * the number the next real line would have had. That is the wrong home for a
+ * fact about the observation rather than the file — the right one is beside
+ * `truncated` in the result metadata, and that is a Cache ABI change.
+ */
+async function noteMoreFollows(
+  writer: ToolOutputFrameWriter,
+  slicer: RecordSliceWriter,
+  argumentsValue: ReadArguments,
+): Promise<void> {
+  if (!slicer.moreFollows) return;
+  const next = argumentsValue.offset + argumentsValue.limit;
+  try {
+    await writer.write(
+      "read",
+      utf8Bytes(`… more lines follow; continue with offset=${String(next)}\n`),
+    );
+  } catch {
+    throw new FileToolOutputError();
   }
 }
 
@@ -603,6 +665,7 @@ async function streamOrdinaryRead(
       await slicer.push(buffer.subarray(0, read.bytesRead));
       position += read.bytesRead;
     }
+    await noteMoreFollows(writer, slicer, argumentsValue);
     return undefined;
   } catch (error) {
     if (error instanceof FileToolOutputError) throw error;
@@ -643,6 +706,7 @@ async function streamArtifactRead(
     if (parser !== undefined) {
       parser.finish();
     }
+    await noteMoreFollows(writer, slicer, argumentsValue);
   } catch (error) {
     if (
       error instanceof FileToolIntegrityError ||

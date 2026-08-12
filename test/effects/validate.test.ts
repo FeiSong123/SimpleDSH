@@ -142,7 +142,7 @@ test("failure codes distinguish JSON syntax from arguments and unknown tool wins
     toolCallId: "call-validator-1",
     arguments: {
       name: "read",
-      value: { path: "README.md", offset: 0, limit: 200 },
+      value: { path: "README.md", offset: 0, limit: 1000 },
     },
   });
   assert.equal(Object.isFrozen(validCall), true);
@@ -174,7 +174,7 @@ test("failure codes distinguish JSON syntax from arguments and unknown tool wins
 test("read validator closes keys, applies defaults, and enforces integer bounds", () => {
   assert.deepEqual(expectSuccess("read", json({ path: "目录/🙂.txt" })), {
     name: "read",
-    value: { path: "目录/🙂.txt", offset: 0, limit: 200 },
+    value: { path: "目录/🙂.txt", offset: 0, limit: 1000 },
   });
   assert.deepEqual(
     expectSuccess(

@@ -380,7 +380,15 @@ test("normal turns retain bounded Artifact handles while tampered and cross-Sess
   const artifactRef = `artifacts/sha256/${sha256Hex(sourceFrames)}`;
   const selectedLine = lines[1_234];
   assert.ok(selectedLine);
-  const selectedFrame = encodeToolOutputData("read", utf8Bytes(selectedLine));
+  // One record out of two thousand does not reach the end, and the Artifact
+  // now records that it did not.
+  const selectedFrame = concatBytes([
+    encodeToolOutputData("read", utf8Bytes(selectedLine)),
+    encodeToolOutputData(
+      "read",
+      utf8Bytes("… more lines follow; continue with offset=1235\n"),
+    ),
+  ]);
   const observations: BeforeSendObservation[] = [];
   const id = sessionId("e");
   await runSessionFixture({

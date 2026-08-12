@@ -103,7 +103,7 @@ async function fileFixture(t: TestContext): Promise<FileFixture> {
   });
 }
 
-function readArguments(path: string, offset = 0, limit = 200): ReadArguments {
+function readArguments(path: string, offset = 0, limit = 1000): ReadArguments {
   return Object.freeze({ path, offset, limit });
 }
 
@@ -471,10 +471,20 @@ test("ordinary reads use zero-based LF records and preserve arbitrary bytes", as
   const path = join(fixture.cwd, "records.bin");
   await writeFile(path, encoder.encode("a\n\nβ\nlast"));
 
+  // "a\n\nβ\nlast": records 1 and 2 are the slice, and `last` is what makes the
+  // marker true. Without it the read would look exactly like a whole file.
   const middle = await capturePathRead(fixture.boundary, path, 1, 2);
   assert.equal(middle.failure, undefined);
-  assert.equal(decoder.decode(middle.output.payload), "\nβ\n");
-  assert.deepEqual(middle.output.streams, ["read", "read"]);
+  assert.equal(
+    decoder.decode(middle.output.payload),
+    "\nβ\n… more lines follow; continue with offset=3\n",
+  );
+  assert.deepEqual(middle.output.streams, ["read", "read", "read"]);
+
+  // A slice that does reach the end says nothing extra.
+  const toEnd = await capturePathRead(fixture.boundary, path, 1, 3);
+  assert.equal(toEnd.failure, undefined);
+  assert.equal(decoder.decode(toEnd.output.payload), "\nβ\nlast");
 
   const eof = await capturePathRead(fixture.boundary, path, 4, 1);
   assert.equal(eof.failure, undefined);
@@ -556,8 +566,12 @@ test("Artifact handle reads fully validate framing and expose only logical paylo
     undefined,
   );
   const output = await capture.finish();
-  assert.equal(decoder.decode(output.payload), "keep-1\nkeep-2\n");
-  assert.deepEqual(output.streams, ["read", "read", "read"]);
+  // A slice of an Artifact says the same thing a slice of a file does.
+  assert.equal(
+    decoder.decode(output.payload),
+    "keep-1\nkeep-2\n… more lines follow; continue with offset=3\n",
+  );
+  assert.deepEqual(output.streams, ["read", "read", "read", "read"]);
   assert.deepEqual(access.counts, { scans: 1, ranges: 0 });
 
   const malformed = concatBytes([
