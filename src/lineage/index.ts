@@ -3,6 +3,7 @@ export {
   buildCacheAbiV1,
   loadAndAssertCacheAbi,
   loadCacheAbi,
+  projectInstructionsFromSystemBlob,
   loadCacheAbiV1,
   MODEL_TUPLE_BYTES,
   modelTupleBytesFor,

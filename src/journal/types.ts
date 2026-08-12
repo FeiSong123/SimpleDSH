@@ -122,7 +122,8 @@ export interface JournalPayloadByType {
       | "project_instructions"
       | "date"
       | "cwd"
-      | "git";
+      | "git"
+      | "tree";
     readonly artifactId: ArtifactId;
     readonly byteCount: number;
   };

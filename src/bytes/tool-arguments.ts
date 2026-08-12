@@ -6,6 +6,9 @@ import {
 import { asToolCallId } from "./tool-call-id.js";
 import type { ToolCallId } from "./tool-call-id.js";
 
+/** `limit` when the caller named none: every record to the end of the file. */
+export const READ_WHOLE_FILE = Number.MAX_SAFE_INTEGER;
+
 export const toolNames = Object.freeze([
   "bash",
   "edit",
@@ -109,12 +112,12 @@ function knownToolName(value: string): value is ToolName {
 }
 
 /**
- * web_search exists only in the active search-v1 tools ABI. Sessions whose
+ * web_search exists in the read-v2 and search-v1 tools ABIs. Sessions whose
  * Lineage froze the previous or legacy tools blob never declared the tool, so
  * a call under those profiles is the same as an unknown tool.
  */
-function webSearchAdmittedForProfile(profile: ToolSchemaProfile): boolean {
-  return profile === "search-v1";
+export function webSearchAdmittedForProfile(profile: ToolSchemaProfile): boolean {
+  return profile === "read-v2" || profile === "search-v1";
 }
 
 export function validateToolArgumentsForProfile(
@@ -165,7 +168,12 @@ export function validateToolArgumentsForProfile(
         value: Object.freeze({
           path: parsed["path"],
           offset: (parsed["offset"] as number | undefined) ?? 0,
-          limit: (parsed["limit"] as number | undefined) ?? 200,
+          // Absent means the whole file. A default line count made the
+          // binding limit an invisible one: a slice smaller than the
+          // projection came back looking exactly like a complete file. Now
+          // the only bound that can cut a read is the projection, which says
+          // so and leaves an Artifact holding every byte.
+          limit: (parsed["limit"] as number | undefined) ?? READ_WHOLE_FILE,
         }),
       }),
     });

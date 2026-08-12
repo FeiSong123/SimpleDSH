@@ -15,13 +15,14 @@ type FactRecordedEvent = Extract<
   { readonly type: "fact_recorded" }
 >;
 
-type UserFactKind = "user_input" | "date" | "cwd" | "git";
+type UserFactKind = "user_input" | "date" | "cwd" | "git" | "tree";
 
 const FACT_ORDER: Readonly<Record<UserFactKind, number>> = Object.freeze({
   user_input: 0,
   date: 1,
   cwd: 2,
   git: 3,
+  tree: 4,
 });
 
 const fatalDecoder = new TextDecoder("utf-8", { fatal: true });

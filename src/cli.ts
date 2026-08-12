@@ -52,6 +52,7 @@ import {
   recoverOfficialSession,
   runOfficialSession,
   SessionInterruptedError,
+  ProjectInstructionsError,
   SessionKernelError,
   type CompletedSessionResult,
   type RunBudgetLimits,
@@ -84,7 +85,6 @@ shown to the model, only its output when it fails:
        --verify-timeout <sec>    default 600
 
 Turn budget (interactive/continue only; each turn stops cleanly at a boundary):
-       --max-tool-rounds <n>     default 50
        --max-cost-usd <amount>   default 1
        --max-minutes <n>         default 30
        --auto-compact-tokens <n> replace the conversation with a summary once
@@ -308,7 +308,6 @@ function parseRecoveryArguments(
  * id, so every one of these was rejected as an invalid invocation.
  */
 const SESSION_FLAGS = new Set([
-  "--max-tool-rounds",
   "--max-cost-usd",
   "--max-minutes",
   "--auto-compact-tokens",
@@ -409,6 +408,14 @@ function classifyFailure(error: unknown): CliFailure {
       exitCode: error.reason === "cancelled" ? 130 : 4,
     });
   }
+  if (error instanceof ProjectInstructionsError) {
+    // Says which file and what is wrong with it: the fix is always an edit to
+    // that file, and a code alone would not point at it.
+    return Object.freeze({
+      message: `flashcoder: ${error.message}\n`,
+      exitCode: 2,
+    });
+  }
   if (error instanceof SessionKernelError) {
     return Object.freeze({
       message: `flashcoder: session_${error.code}\n`,
@@ -422,8 +429,19 @@ function classifyFailure(error: unknown): CliFailure {
     });
   }
   if (error instanceof JournalError) {
+    // Taking a lease from another writer is never automatic: naming the exact
+    // lease you saw is how you say you looked. But the code alone left nobody
+    // any way to find out what to name, so it says where to read it.
+    const guidance =
+      error.code === "JOURNAL_LEASE_HELD"
+        ? "flashcoder: another writer holds this session. If no other flashcoder is" +
+          " running, take it over with:\n" +
+          "flashcoder:   flashcoder inspect <session-id>   # observation.finalLease.fingerprint\n" +
+          "flashcoder:   flashcoder recover <session-id> --quarantine-fingerprint <sha256:...>" +
+          " --confirm-no-concurrent-start\n"
+        : "";
     return Object.freeze({
-      message: `flashcoder: ${error.code.toLowerCase()}\n`,
+      message: `flashcoder: ${error.code.toLowerCase()}\n${guidance}`,
       exitCode: 5,
     });
   }
@@ -631,12 +649,7 @@ function parseBudgetOptions(
   for (let index = 0; index < arguments_.length; index += 1) {
     const flag = arguments_[index];
     const raw = arguments_[index + 1];
-    if (flag === "--max-tool-rounds") {
-      const value = Number(raw);
-      if (!Number.isSafeInteger(value) || value <= 0) throw new CliInputError();
-      limits = { ...limits, maxToolRounds: value };
-      index += 1;
-    } else if (flag === "--max-cost-usd") {
+    if (flag === "--max-cost-usd") {
       if (raw === undefined || !/^\d+(?:\.\d{1,12})?$/u.test(raw)) {
         throw new CliInputError();
       }

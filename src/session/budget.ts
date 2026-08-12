@@ -11,21 +11,25 @@ import type { SessionAcceptanceBudget } from "./kernel.js";
  * turn continues normally from the same Lineage.
  */
 export interface RunBudgetLimits {
-  /** Model requests in one turn. A turn needing more is almost always stuck. */
-  readonly maxToolRounds: number;
   /** Worst-case spend for the turn, in integer picodollars. */
   readonly maxCostPicodollars: bigint;
   readonly maxWallMs: number;
 }
 
+/**
+ * No cap on model requests per turn.
+ *
+ * There was one, at fifty, on the theory that a turn needing more was stuck. A
+ * hard change is not stuck at round sixty; it is at round sixty. Cost and wall
+ * clock bound a runaway from the two directions that actually cost something,
+ * and a round count is a worse proxy for both.
+ */
 export const DEFAULT_RUN_BUDGET: RunBudgetLimits = Object.freeze({
-  maxToolRounds: 50,
   maxCostPicodollars: 1_000_000_000_000n, // $1.00
   maxWallMs: 30 * 60 * 1000,
 });
 
 export type RunBudgetStop =
-  | "tool_rounds"
   | "cost"
   | "wall_clock";
 
@@ -81,8 +85,6 @@ export class RunBudget implements SessionAcceptanceBudget {
     clock: MonotonicClock = systemClock,
   ) {
     if (
-      !Number.isSafeInteger(limits.maxToolRounds) ||
-      limits.maxToolRounds <= 0 ||
       !Number.isFinite(limits.maxWallMs) ||
       limits.maxWallMs <= 0 ||
       limits.maxCostPicodollars <= 0n
@@ -142,12 +144,7 @@ export class RunBudget implements SessionAcceptanceBudget {
   beforeSemanticRequest(): number {
     this.#checkWall();
     this.#checkCost();
-    if (this.#toolRounds >= this.#limits.maxToolRounds) {
-      this.#stop(
-        "tool_rounds",
-        `${String(this.#toolRounds)} of ${String(this.#limits.maxToolRounds)}`,
-      );
-    }
+    // Counted for the "4 steps" line, not capped.
     this.#toolRounds += 1;
     return this.#toolRounds;
   }

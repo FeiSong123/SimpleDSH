@@ -1,6 +1,10 @@
 import { utf8Bytes } from "../bytes/ops.js";
+import { loadActiveCacheAbi } from "./kernel.js";
 import type { ReasoningEffort } from "../bytes/request.js";
-import { buildCacheAbiV2 } from "../lineage/index.js";
+import {
+  buildCacheAbiV2,
+  projectInstructionsFromSystemBlob,
+} from "../lineage/index.js";
 import {
   newLineageId,
   openJournal,
@@ -114,7 +118,14 @@ export async function recordCompaction(input: {
     let cacheAbiId = started.payload.cacheAbiId;
     let parentId = published.id;
     if (input.reasoningEffort !== undefined) {
-      const abi = buildCacheAbiV2(undefined, input.reasoningEffort);
+      // Carry this Lineage's frozen instructions across rather than reading
+      // the file again: the workspace may have changed, and what the Session
+      // was told is what it froze.
+      const active = await loadActiveCacheAbi(opened, fromLineageId);
+      const abi = buildCacheAbiV2(
+        projectInstructionsFromSystemBlob(active.systemBlob),
+        input.reasoningEffort,
+      );
       if (abi.cacheAbiId !== cacheAbiId) {
         const manifest = await opened.artifacts.publishArtifact(
           abi.manifestBytes,

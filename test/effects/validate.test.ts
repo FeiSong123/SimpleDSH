@@ -4,6 +4,7 @@ import test from "node:test";
 import { sha256Hex } from "../../src/bytes/ops.js";
 import {
   CANONICAL_TOOLS_BYTES,
+  SEARCH_V1_CANONICAL_TOOLS_BYTES,
   LEGACY_CANONICAL_TOOLS_BYTES,
   PREVIOUS_CANONICAL_TOOLS_BYTES,
   toolSchemaProfileForBytes,
@@ -11,6 +12,7 @@ import {
 } from "../../src/bytes/schemas.js";
 import { utf8View } from "../../src/bytes/view.js";
 import {
+  READ_WHOLE_FILE,
   toolNames,
   validateToolArguments,
   validateToolArgumentsForProfile,
@@ -87,9 +89,15 @@ function providerToolName(value: unknown): string {
 test("provider-visible tool schema bytes and sorted validator order stay frozen", () => {
   assert.deepEqual(toolNames, ["bash", "edit", "read", "web_search", "write"]);
   assert.equal(Object.isFrozen(toolNames), true);
-  assert.equal(CANONICAL_TOOLS_BYTES.byteLength, 1_880);
+  assert.equal(CANONICAL_TOOLS_BYTES.byteLength, 2_261);
   assert.equal(
     sha256Hex(CANONICAL_TOOLS_BYTES),
+    "29abc67baa34f6194be39d0aa5506eb9880569cb04461bc139845b66d85ec3dc",
+  );
+  // The bytes the read-v2 ABI replaced, kept loadable forever.
+  assert.equal(SEARCH_V1_CANONICAL_TOOLS_BYTES.byteLength, 1_880);
+  assert.equal(
+    sha256Hex(SEARCH_V1_CANONICAL_TOOLS_BYTES),
     "815cf370a4250969b811ed91374889be408b14611555b9ff468693914f2c01a8",
   );
   assert.equal(PREVIOUS_CANONICAL_TOOLS_BYTES.byteLength, 1_481);
@@ -102,7 +110,11 @@ test("provider-visible tool schema bytes and sorted validator order stay frozen"
     sha256Hex(LEGACY_CANONICAL_TOOLS_BYTES),
     "2cab77d4184a9839e7c432d160b2edb39a0fdfa69fb8b56754d67c89765fae12",
   );
-  assert.equal(toolSchemaProfileForBytes(CANONICAL_TOOLS_BYTES), "search-v1");
+  assert.equal(toolSchemaProfileForBytes(CANONICAL_TOOLS_BYTES), "read-v2");
+  assert.equal(
+    toolSchemaProfileForBytes(SEARCH_V1_CANONICAL_TOOLS_BYTES),
+    "search-v1",
+  );
   assert.equal(
     toolSchemaProfileForBytes(PREVIOUS_CANONICAL_TOOLS_BYTES),
     "edit-v5",
@@ -119,7 +131,7 @@ test("provider-visible tool schema bytes and sorted validator order stay frozen"
 
 test("failure codes distinguish JSON syntax from arguments and unknown tool wins first", () => {
   for (const name of toolNames) {
-    // web_search is profile-gated to search-v1; the edit-v5 default below is
+    // web_search is profile-gated; the edit-v5 default below is
     // covered by its own test.
     if (name === "web_search") continue;
     expectFailure(name, "{", "invalid_json");
@@ -142,7 +154,7 @@ test("failure codes distinguish JSON syntax from arguments and unknown tool wins
     toolCallId: "call-validator-1",
     arguments: {
       name: "read",
-      value: { path: "README.md", offset: 0, limit: 200 },
+      value: { path: "README.md", offset: 0, limit: READ_WHOLE_FILE },
     },
   });
   assert.equal(Object.isFrozen(validCall), true);
@@ -174,7 +186,7 @@ test("failure codes distinguish JSON syntax from arguments and unknown tool wins
 test("read validator closes keys, applies defaults, and enforces integer bounds", () => {
   assert.deepEqual(expectSuccess("read", json({ path: "目录/🙂.txt" })), {
     name: "read",
-    value: { path: "目录/🙂.txt", offset: 0, limit: 200 },
+    value: { path: "目录/🙂.txt", offset: 0, limit: READ_WHOLE_FILE },
   });
   assert.deepEqual(
     expectSuccess(

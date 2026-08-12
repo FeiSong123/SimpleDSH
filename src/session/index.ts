@@ -1,4 +1,10 @@
 export {
+  loadProjectInstructions,
+  PROJECT_INSTRUCTIONS_FILE,
+  PROJECT_INSTRUCTIONS_LIMIT_BYTES,
+  ProjectInstructionsError,
+} from "./project-instructions.js";
+export {
   DEFAULT_RUN_BUDGET,
   RunBudget,
   RunBudgetExceeded,
@@ -13,6 +19,9 @@ export {
   SessionKernelError,
   SessionAcceptanceBudgetError,
   captureSessionEnvironment,
+  captureTurnEnvironment,
+  GIT_STATUS_ENTRY_LIMIT,
+  TREE_ENTRY_LIMIT,
   continueOfficialSession,
   continueSessionFixture,
   recoverOfficialSession,

@@ -103,7 +103,7 @@ async function fileFixture(t: TestContext): Promise<FileFixture> {
   });
 }
 
-function readArguments(path: string, offset = 0, limit = 200): ReadArguments {
+function readArguments(path: string, offset = 0, limit = 1000): ReadArguments {
   return Object.freeze({ path, offset, limit });
 }
 
@@ -157,20 +157,26 @@ async function capturePathRead(
   boundary: FileToolBoundary,
   path: string,
   offset = 0,
-  limit = 200,
+  limit = 1000,
 ): Promise<Readonly<{
-  failure: Awaited<ReturnType<typeof executeReadFile>>;
+  failure: Awaited<ReturnType<typeof executeReadFile>>["failure"];
+  nextOffset: number | null;
   output: CapturedOutput;
 }>> {
   const subject = resolveFileSubject(boundary, "read", path);
   const capture = captureWriter();
-  const failure = await executeReadFile(
+  const outcome = await executeReadFile(
     boundary,
     subject,
     readArguments(path, offset, limit),
     capture.writer,
+    { markMoreFollows: true },
   );
-  return Object.freeze({ failure, output: await capture.finish() });
+  return Object.freeze({
+    failure: outcome.failure,
+    nextOffset: outcome.nextOffset,
+    output: await capture.finish(),
+  });
 }
 
 async function prepareWrite(
@@ -471,10 +477,23 @@ test("ordinary reads use zero-based LF records and preserve arbitrary bytes", as
   const path = join(fixture.cwd, "records.bin");
   await writeFile(path, encoder.encode("a\n\nβ\nlast"));
 
+  // "a\n\nβ\nlast": records 1 and 2 are the slice, and `last` is what makes the
+  // marker true. Without it the read would look exactly like a whole file.
   const middle = await capturePathRead(fixture.boundary, path, 1, 2);
   assert.equal(middle.failure, undefined);
-  assert.equal(decoder.decode(middle.output.payload), "\nβ\n");
-  assert.deepEqual(middle.output.streams, ["read", "read"]);
+  assert.equal(
+    decoder.decode(middle.output.payload),
+    "\nβ\n… more lines follow; continue with offset=3\n",
+  );
+  assert.deepEqual(middle.output.streams, ["read", "read", "read"]);
+  // The same fact, in the form a newer Lineage carries it.
+  assert.equal(middle.nextOffset, 3);
+
+  // A slice that does reach the end says nothing extra.
+  const toEnd = await capturePathRead(fixture.boundary, path, 1, 3);
+  assert.equal(toEnd.failure, undefined);
+  assert.equal(decoder.decode(toEnd.output.payload), "\nβ\nlast");
+  assert.equal(toEnd.nextOffset, null);
 
   const eof = await capturePathRead(fixture.boundary, path, 4, 1);
   assert.equal(eof.failure, undefined);
@@ -546,18 +565,22 @@ test("Artifact handle reads fully validate framing and expose only logical paylo
   const subject = resolveFileSubject(boundary, "read", descriptor.artifactRef);
   assert.equal(subject.kind, "artifact");
   const capture = captureWriter();
-  assert.equal(
-    await executeReadFile(
-      boundary,
-      subject,
-      readArguments(descriptor.artifactRef, 1, 2),
-      capture.writer,
-    ),
-    undefined,
+  const sliced = await executeReadFile(
+    boundary,
+    subject,
+    readArguments(descriptor.artifactRef, 1, 2),
+    capture.writer,
+    { markMoreFollows: true },
   );
+  assert.equal(sliced.failure, undefined);
+  assert.equal(sliced.nextOffset, 3);
   const output = await capture.finish();
-  assert.equal(decoder.decode(output.payload), "keep-1\nkeep-2\n");
-  assert.deepEqual(output.streams, ["read", "read", "read"]);
+  // A slice of an Artifact says the same thing a slice of a file does.
+  assert.equal(
+    decoder.decode(output.payload),
+    "keep-1\nkeep-2\n… more lines follow; continue with offset=3\n",
+  );
+  assert.deepEqual(output.streams, ["read", "read", "read", "read"]);
   assert.deepEqual(access.counts, { scans: 1, ranges: 0 });
 
   const malformed = concatBytes([

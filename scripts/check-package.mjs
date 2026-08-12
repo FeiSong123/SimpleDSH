@@ -78,7 +78,7 @@ if (manifest.name !== "flashcoder") fail("package name must be flashcoder");
 // Pinned to one exact version rather than a range: the released tarball is
 // named after it, so a bump has to be a deliberate edit here and not a side
 // effect of `npm version`.
-if (manifest.version !== "0.1.0-rc.4") fail("bootstrap version must be 0.1.0-rc.4");
+if (manifest.version !== "0.1.0-rc.5") fail("bootstrap version must be 0.1.0-rc.5");
 if (manifest.private !== true) fail("bootstrap package must remain private");
 if (manifest.type !== "module") fail("package type must be module");
 if (manifest.license !== "UNLICENSED") fail("bootstrap license must be UNLICENSED");

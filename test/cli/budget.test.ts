@@ -46,20 +46,17 @@ class FakeClock implements MonotonicClock {
   }
 }
 
-test("the tool round limit stops the turn before the next request", () => {
-  const budget = new RunBudget(
-    { ...DEFAULT_RUN_BUDGET, maxToolRounds: 3 },
-    PRICE,
-  );
-  assert.equal(budget.beforeSemanticRequest(), 1);
-  assert.equal(budget.beforeSemanticRequest(), 2);
-  assert.equal(budget.beforeSemanticRequest(), 3);
-
-  assert.throws(() => budget.beforeSemanticRequest(), RunBudgetExceeded);
-  assert.equal(budget.stopped?.stop, "tool_rounds");
-  assert.equal(budget.signal.aborted, true);
-  // The counter records what was actually spent, not the attempt that stopped.
-  assert.equal(budget.usage.toolRounds, 3);
+test("rounds are counted, never capped", () => {
+  // There was a cap at fifty, on the theory that a turn needing more was stuck.
+  // A hard change is not stuck at round sixty; cost and wall clock bound a
+  // runaway from the two directions that actually cost something.
+  const budget = new RunBudget(DEFAULT_RUN_BUDGET, PRICE);
+  for (let round = 1; round <= 200; round += 1) {
+    assert.equal(budget.beforeSemanticRequest(), round);
+  }
+  assert.equal(budget.stopped, null);
+  assert.equal(budget.signal.aborted, false);
+  assert.equal(budget.usage.toolRounds, 200);
 });
 
 test("cost accumulates at the dated price and stops the next request", () => {
@@ -123,7 +120,7 @@ test("effects are checked too, so a long tool run cannot outlive the budget", ()
 
 test("the first stop is the one reported", () => {
   const budget = new RunBudget(
-    { ...DEFAULT_RUN_BUDGET, maxToolRounds: 1, maxCostPicodollars: 1n },
+    { ...DEFAULT_RUN_BUDGET, maxCostPicodollars: 1n },
     PRICE,
   );
   budget.beforeSemanticRequest();
@@ -138,7 +135,7 @@ test("the first stop is the one reported", () => {
 
 test("limits must be positive", () => {
   assert.throws(
-    () => new RunBudget({ ...DEFAULT_RUN_BUDGET, maxToolRounds: 0 }, PRICE),
+    () => new RunBudget({ ...DEFAULT_RUN_BUDGET, maxWallMs: 0 }, PRICE),
     TypeError,
   );
   assert.throws(
@@ -162,7 +159,7 @@ test("picodollars render with exactly twelve fractional digits", () => {
 });
 
 test("the default budget is bounded on all three axes", () => {
-  assert.ok(DEFAULT_RUN_BUDGET.maxToolRounds > 0);
+  assert.ok(DEFAULT_RUN_BUDGET.maxWallMs > 0);
   assert.ok(DEFAULT_RUN_BUDGET.maxCostPicodollars > 0n);
   assert.ok(DEFAULT_RUN_BUDGET.maxWallMs > 0);
 });

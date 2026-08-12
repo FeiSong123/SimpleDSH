@@ -178,6 +178,30 @@ function manifestBytesFor(
   ]);
 }
 
+/**
+ * The project instructions a frozen system blob carries, if any.
+ *
+ * A Lineage that changes its Cache ABI mid-Session — a different reasoning
+ * effort — has to carry the same instructions across. Re-reading the file would
+ * be wrong: the workspace may have changed since, and what this Session was
+ * told is what it froze.
+ */
+export function projectInstructionsFromSystemBlob(
+  systemBlob: FrozenBytes,
+): FrozenBytes | undefined {
+  let content: string;
+  try {
+    content = viewSystem(systemBlob).content;
+  } catch {
+    throw new TypeError("Cache ABI system blob does not round-trip canonically");
+  }
+  const marker = "\n\nProject instructions:\n";
+  const at = content.indexOf(marker);
+  if (at === -1) return undefined;
+  const instructions = content.slice(at + marker.length);
+  return instructions.length === 0 ? undefined : utf8Bytes(instructions);
+}
+
 function canonicalSystemBlobFor(
   systemBlob: FrozenBytes,
   content: string,
@@ -401,7 +425,9 @@ function loadCacheAbiForProtocol(
   const toolsProfile = toolSchemaProfileForBytes(fields.toolsBlob);
   const admitted =
     (protocolVersion === PROTOCOL_VERSION_V2 &&
-      (toolsProfile === "search-v1" || toolsProfile === "edit-v5") &&
+      (toolsProfile === "read-v2" ||
+        toolsProfile === "search-v1" ||
+        toolsProfile === "edit-v5") &&
       (systemProfile === "current" ||
         systemProfile === "rc1" ||
         systemProfile === "rc2" ||
@@ -411,7 +437,9 @@ function loadCacheAbiForProtocol(
       toolsProfile === "edit-v5" &&
       systemProfile === "preceding") ||
     (protocolVersion === PROTOCOL_VERSION_V1 &&
-      (toolsProfile === "search-v1" || toolsProfile === "edit-v5") &&
+      (toolsProfile === "read-v2" ||
+        toolsProfile === "search-v1" ||
+        toolsProfile === "edit-v5") &&
       systemProfile === "previous") ||
     (protocolVersion === PROTOCOL_VERSION_V1 &&
       toolsProfile === "edit-v4" &&

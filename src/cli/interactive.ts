@@ -15,6 +15,7 @@ import {
 } from "../journal/index.js";
 import {
   captureSessionEnvironment,
+  captureTurnEnvironment,
   continueOfficialSession,
   formatPicodollars,
   recoverOfficialSession,
@@ -245,9 +246,10 @@ export class InteractiveSession {
       const credential = loadDeepSeekCredential({
         projectRoot: this.#workspaceRoot,
       });
-      const environmentFacts = await captureSessionEnvironment(
-        this.#workspaceRoot,
-      );
+      // A continued turn does not need the listing, so it does not build one.
+      const environmentFacts = await (this.#started
+        ? captureTurnEnvironment(this.#workspaceRoot)
+        : captureSessionEnvironment(this.#workspaceRoot));
       if (this.#sessionId === null) this.#sessionId = newSessionId();
       budget = new RunBudget(this.#limits, await this.#price());
       // A Lineage created by compaction has no prefix yet. Its first turn
@@ -550,9 +552,8 @@ export class InteractiveSession {
       const credential = loadDeepSeekCredential({
         projectRoot: this.#workspaceRoot,
       });
-      const environmentFacts = await captureSessionEnvironment(
-        this.#workspaceRoot,
-      );
+      // Compaction continues an existing Lineage, so it carries the turn facts.
+      const environmentFacts = await captureTurnEnvironment(this.#workspaceRoot);
       const sessionId = this.#sessionId;
       const controller = new AbortController();
       this.#controller = controller;
