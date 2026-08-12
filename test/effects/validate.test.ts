@@ -235,13 +235,19 @@ test("read validator closes keys, applies defaults, and enforces integer bounds"
     -1,
     0,
     1.5,
-    2_001,
     Number.MAX_SAFE_INTEGER + 1,
     "1",
     null,
   ]) {
     expectFailure("read", json({ path: "file.txt", limit }));
   }
+  // A large explicit limit is accepted. There is no declared ceiling, and once
+  // an absent limit means the whole file, a cap on an explicit one only made
+  // asking for five thousand lines fail while asking for all of them worked.
+  assert.deepEqual(
+    expectSuccess("read", json({ path: "file.txt", limit: 5_000 })),
+    { name: "read", value: { path: "file.txt", offset: 0, limit: 5_000 } },
+  );
   for (const path of ["", "a\0b", "\ud800", "\udfff", 1, null]) {
     expectFailure("read", json({ path }));
   }

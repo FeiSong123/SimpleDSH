@@ -154,10 +154,14 @@ export function validateToolArgumentsForProfile(
       !scalar(parsed["path"], false) ||
       (parsed["offset"] !== undefined &&
         (!Number.isSafeInteger(parsed["offset"]) || (parsed["offset"] as number) < 0)) ||
+      // No ceiling: the schema declares only `minimum: 1`, and once an absent
+      // limit means the whole file a cap on an explicit one has nothing left
+      // to protect. Asking for five thousand lines used to fail with a bare
+      // `invalid_arguments` while omitting the argument read a hundred
+      // thousand.
       (parsed["limit"] !== undefined &&
         (!Number.isSafeInteger(parsed["limit"]) ||
-          (parsed["limit"] as number) < 1 ||
-          (parsed["limit"] as number) > 2_000))
+          (parsed["limit"] as number) < 1))
     ) {
       return Object.freeze({ ok: false, code: "invalid_arguments" });
     }
