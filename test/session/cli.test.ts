@@ -57,7 +57,7 @@ Turn budget (interactive/continue only; each turn stops cleanly at a boundary):
        --max-minutes <n>         default 30
        --auto-compact-tokens <n> replace the conversation with a summary once
                                  the prefix reaches n prompt tokens; 0 disables
-                                 (default 512000)
+                                 (default 768928)
 
 Quarantine options (recover/reconcile only):
        --quarantine-fingerprint <sha256:...>
