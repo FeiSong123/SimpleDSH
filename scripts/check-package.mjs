@@ -201,6 +201,14 @@ const jsonParseAllowlist = new Set([
   // argument bytes stay frozen in the assistant blob and are never rebuilt from
   // this, which is what the rule protects.
   "src/cli/transcript.ts",
+  // Session list fast path: parses log.jsonl lines for a read-only projection
+  // (title, turn count, state, cwd). Anything it cannot trust falls back to the
+  // fully verified replay; no bytes are rebuilt from these parsed fields.
+  "src/cli/sessions.ts",
+  // Recovery execution gate: reads the bash command out of a tool call's exact
+  // arguments JSON purely to disclose it to the operator before asking for
+  // confirmation. The bytes stay frozen and are never rebuilt from this.
+  "src/cli.ts",
 ]);
 const httpsRequestImportAllowlist = new Set(["src/ds/transport.ts"]);
 for (const path of sourceInventory) {
@@ -399,7 +407,11 @@ for (const path of sourceInventory) {
   if (
     path.startsWith("src/tui/") ||
     path === "src/cli/theme.ts" ||
-    path === "src/cli/banner.ts"
+    path === "src/cli/banner.ts" ||
+    // Interactive screen probes TMUX to decide whether to enable mouse tracking
+    // and to show the tmux hint; same class of terminal capability probe as the
+    // TUI layer, just expressed in the CLI layer.
+    path === "src/cli/screen.ts"
   ) {
     if (/readFileSync\([^\n]*\.env/u.test(source)) {
       fail(`terminal layer must not read .env: ${path}`);
