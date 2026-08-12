@@ -1,19 +1,39 @@
+<div align="center">
+
 # FlashCoder
 
-![FlashCoder typing at its prompt](docs/demo.gif)
+**Simple Harness for DeepSeek Models**
 
-A cache-first, crash-recoverable coding agent for DeepSeek.
+DeepSeek-native · Cache-first · Durable Sessions · Small by Design
 
-FlashCoder is a coding agent that runs in your terminal and talks to
-`api.deepseek.com` directly. It reads and edits files, runs shell commands, and
-writes down everything it did in a form you can replay.
+[![Release](https://img.shields.io/badge/release-v0.1.0--rc.4-7c5cff?style=flat-square)](https://github.com/Owen718/FlashCoder/releases/tag/v0.1.0-rc.4)
+[![CI](https://img.shields.io/github/actions/workflow/status/Owen718/FlashCoder/ci.yml?branch=main&style=flat-square&label=build)](https://github.com/Owen718/FlashCoder/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/Owen718/FlashCoder?style=flat-square)](LICENSE)
+![Node](https://img.shields.io/badge/node-%3E%3D22-42b883?style=flat-square)
 
-Status: v0.1 release candidate. Installed from a GitHub release; not on the
-npm registry yet.
+[Quick Start](#quick-start) · [Why FlashCoder](#why-flashcoder) · [Commands](#commands) · [Design](#design) · [Security](#security)
 
-## Install
+<br>
 
-Node 22 or newer, on macOS or Linux.
+<img src="docs/demo.gif" width="856" alt="FlashCoder running in the terminal">
+
+</div>
+
+FlashCoder is a focused coding agent that runs in your terminal and talks to
+DeepSeek directly. It reads and edits files, runs shell commands, searches the
+web when needed, and records every action in a durable session you can inspect,
+resume, or recover.
+
+It keeps the harness deliberately small so the model—not layers of agent
+machinery—does the work.
+
+> [!NOTE]
+> FlashCoder is currently a **v0.1 release candidate** for macOS and Linux.
+> It is distributed through GitHub Releases and is not on npm yet.
+
+## Quick Start
+
+Requires Node.js 22 or newer.
 
 ```sh
 curl -fsSL https://github.com/Owen718/FlashCoder/releases/download/v0.1.0-rc.4/flashcoder-0.1.0-rc.4.tgz -o flashcoder.tgz
@@ -21,191 +41,228 @@ npm install -g ./flashcoder.tgz
 flashcoder login
 ```
 
-Download first, then install from the file. Recent npm refuses to fetch tarballs
-from arbitrary URLs — `npm error code EALLOWREMOTE` — and this way works on
-every version, on a file you can inspect before installing it.
-
-The release is prebuilt, so installing unpacks it and nothing else. This
-package declares no install-time scripts and never will — running a build on
-your machine during `npm install` is the shape of supply-chain problem this
-project avoids elsewhere, so it is not going to introduce one here.
-
-`flashcoder login` prompts for a DeepSeek API key without echoing it, checks it
-against the provider before saving, and writes it to
-`~/.config/flashcoder/credentials` with mode `0600`. That path is outside any
-repository, so the key cannot be committed by accident. `flashcoder logout`
-removes it.
-
-The key is read from, in order: the `DEEPSEEK_API_KEY` environment variable, a
-`.env` at the project root, then the stored file. A project `.env` must be
-Git-ignored and mode `0600` or startup refuses.
-
-### From source
+Then open a project and start coding:
 
 ```sh
-git clone https://github.com/Owen718/FlashCoder && cd FlashCoder
-npm install
-npm run build
-npm link
+cd your-project
+flashcoder
 ```
 
-## Upgrading from SimpleDSH
+<details>
+<summary><strong>Why install from a downloaded tarball?</strong></summary>
 
-This project was called SimpleDSH through v0.1.0-rc.2. Nothing you already have
-is lost or moved:
+Recent npm versions reject tarballs fetched directly from arbitrary URLs with
+`EALLOWREMOTE`. Downloading first works across npm versions and gives you an
+artifact you can inspect before installing.
 
-- A workspace that already holds a `.dsh/` directory keeps using it. Moving a
-  Journal would be a rewrite, and this is a system that does not rewrite durable
-  state. New workspaces get `.flashcoder/`.
-- A key under `~/.config/dsh/credentials` is still read when there is nothing at
-  the new path, so you do not have to log in again. It is never written there
-  again: `flashcoder logout` and the next `flashcoder login` move it across.
-- Sessions created by an older binary keep their frozen Cache ABI, including the
-  system prompt that called the agent SimpleDSH. They continue without a cache
-  break. Only new Sessions get the new prefix.
+The release is prebuilt. Installation only unpacks it: the package declares no
+install-time scripts.
 
-`npm uninstall -g simpledsh` removes the old command.
+</details>
 
-## Use
+<details>
+<summary><strong>How credentials are stored</strong></summary>
 
-```
-flashcoder                        interactive, multi-turn
-flashcoder run "<prompt>"         one turn, then exit
-flashcoder sessions               list this workspace's sessions
-flashcoder continue [session-id]  add a turn to a finished session
-flashcoder inspect <session-id>   read-only projection of the durable facts
-flashcoder recover <session-id>   take over a session whose last run was interrupted
-```
+`flashcoder login` asks for a DeepSeek API key without echoing it, validates the
+key with the provider, and stores it at
+`~/.config/flashcoder/credentials` with mode `0600`.
 
-Every tool call is shown as it settles:
+Credentials are read in this order:
 
-```
+1. `DEEPSEEK_API_KEY`
+2. A Git-ignored, mode-`0600` `.env` in the project root
+3. The stored credentials file
+
+Run `flashcoder logout` to remove the stored key.
+
+</details>
+
+## Why FlashCoder
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<h3>DeepSeek-native</h3>
+<p>Built directly around DeepSeek's API and model behavior—not through a generic
+provider abstraction. The request format, reasoning controls, web search, cost
+accounting, and context lifecycle are designed together.</p>
+</td>
+<td width="50%" valign="top">
+<h3>Cache-first</h3>
+<p>Request bytes are durable state. Prefixes grow by appending, retries reuse the
+original snapshot, and planned cache breaks create a new lineage. FlashCoder
+optimizes the quality–cost frontier, not cache hit rate at any price.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<h3>Durable Sessions</h3>
+<p>Every message, tool call, artifact, cost, and safe boundary is journaled. Close
+the terminal, interrupt a run, or come back tomorrow—the session remains
+inspectable, resumable, and recoverable.</p>
+</td>
+<td width="50%" valign="top">
+<h3>Small by Design</h3>
+<p>Five tools. Six runtime dependencies. No plugin system. New machinery enters
+the core only when a real caller fails without it.</p>
+</td>
+</tr>
+</table>
+
+## Work You Can See
+
+Tool calls appear as they settle, followed by a compact ledger of the run:
+
+```text
 > fix the bug in calc.py and check it
+
 ● read calc.py
 ● edit calc.py
 ● bash python3 -c "from calc import add; assert add(2, 3) == 5"
+
 Fixed calc.py: `return a - b` → `return a + b`, verified with three cases.
+
 4 steps · 3 tools · $0.0002 · 5.9s
 ```
 
-In interactive mode `Enter` sends and `Shift-Enter` adds a line. Typing while a
-turn is running queues the message: it is sent as the next turn once the current
-one closes, never spliced into a request already in flight. `Ctrl-C` interrupts
-the running turn, then clears the input, then clears the queue. `@` completes a
-workspace path, `↑`/`↓` walk earlier messages, `Ctrl-D` exits.
-
-`/` lists the built-in commands:
-
-```
-/help      keys and commands
-/clear     empty the screen, keep the conversation
-/compact   replace the conversation with a summary of itself
-/effort    how hard the model thinks: low, high, max
-/login     store a DeepSeek API key
-/logout    remove the stored key
-/session   pick a session in this workspace and resume it
-/exit      leave, and /quit does the same
-```
-
-`/clear` is display only — the session, its byte prefix and every durable fact
-are untouched, and the next turn is still a cache hit. `/compact` is the one
-that changes what gets sent; it also runs on its own once the prefix reaches
-512K prompt tokens, because the model gets noticeably worse as it approaches
-its 1M window. `--auto-compact-tokens <n>` moves that point, and `0` turns it
-off.
-
-`/effort` opens a slider. Changing it mid-session is allowed and costs a cache
-break: reasoning effort is part of the frozen prefix, so a new level means a new
-Cache ABI and a new lineage. The conversation carries across as a summary, the
-same way compaction does, and the next turn starts cold on purpose.
-
-To let a command decide whether the work stands up:
+When completion needs an external verdict, let a command decide:
 
 ```sh
 flashcoder run --verify "npm test" --protect test "fix the failing case"
 ```
 
+`--verify` uses the command's exit code. `--protect` detects whether paths the
+verdict depends on changed before verification, so a modified test cannot be
+quietly presented as a pass.
+
+## Commands
+
+```text
+flashcoder                        interactive, multi-turn
+flashcoder run "<prompt>"         one turn, then exit
+flashcoder sessions               list this workspace's sessions
+flashcoder continue [session-id]  continue a finished session
+flashcoder inspect <session-id>   project the durable facts, read-only
+flashcoder recover <session-id>   take over an interrupted session
+```
+
+Inside the TUI:
+
+```text
+/help      keys and commands
+/clear     clear the display, keep the conversation
+/compact   summarize the conversation into a new lineage
+/effort    set reasoning effort: low, high, max
+/login     store a DeepSeek API key
+/logout    remove the stored key
+/session   pick and resume a workspace session
+/exit      leave FlashCoder
+```
+
+`Enter` sends, `Shift-Enter` inserts a line, `@` completes workspace paths, and
+`↑` / `↓` walk through previous messages. Text entered during a running turn is
+queued for the next turn rather than spliced into an in-flight request.
+
 ## Design
 
-**Nothing is invented.** Request bytes are materialized once and never rebuilt.
-Tool results are the only evidence that an action occurred. If it was not
-recorded, it did not happen.
+### Evidence, not reconstruction
 
-**The log is the runtime.** Every run appends to a session log: the exact
-request bytes, each assistant message, each tool call and artifact, the cost,
-and where the run safely closed. Session state, the ledger and the screen are
-all projections of it. There is no second source of truth, so closing the
-terminal loses nothing.
+Request bytes are materialized once and never rebuilt from mutable state. Tool
+results are the evidence that an action happened. If an action was not
+recorded, FlashCoder does not pretend it occurred.
 
-**Cache is a first-class architectural concern.** The exact request bytes sent
-to DeepSeek are durable state, not something rebuilt from mutable objects. A
-conversation only ever grows at the end, retries reuse the original request
-snapshot, and planned breaks such as compaction start a new lineage instead of
-silently changing an old prefix. This maximizes cache-hit eligibility and makes
-accidental breaks detectable. Actual cache hits remain best-effort and under
-the provider's control; the measured hit ratio sits next to cost on the status
-line.
+### The log is the runtime
 
-**Interruption is a fact, not a crash.** A run that stops part-way closes at its
-last safe boundary. The next turn continues from there instead of replaying work
-that already happened.
+Session state, the cost ledger, and the screen are projections of one append-only
+journal. There is no parallel source of truth to drift out of sync.
 
-**Even compaction only appends.** Replacing a long conversation with a summary
-is the one operation that could be a rewrite, and it is not one. The model
-writes the summary on the lineage being replaced — so reading the whole history
-is still a cache hit — and only then does a new lineage start under the same
-frozen system prompt and tools. No byte is deleted or edited; the old prefix
-stays replayable and simply stops being sent.
+### Interruption is a fact, not a crash
 
-**The agent does not get to say it is done.** With `--verify`, a command's exit
-code decides. `--protect` names the paths that command depends on; if they moved
-by the time it runs, the verdict is `tampered` rather than `passed`. This
-detects rather than prevents — it cannot stop a model editing the tests, but it
-will not call that a pass.
+An interrupted run closes at its last safe boundary. Recovery continues from
+recorded work instead of silently replaying actions that may already have taken
+effect.
 
-**Small on purpose.** Five tools, six runtime dependencies, no plugin system.
-Things get added when there is a caller that fails without them.
+### Compaction also appends
 
-## Web search
+The current lineage writes its own summary before a new lineage begins. The old
+prefix remains replayable; no prior request byte is edited or deleted.
 
-New sessions declare a `web_search` tool backed by DeepSeek's official web
-search. DeepSeek's search is a server-side `web_search` tool in the Responses
-API (`/responses`) — the chat completions API only accepts `function` tools and
-there is no client-side search endpoint. When the model decides the answer
-needs facts the workspace cannot provide, it calls `web_search` with a
-`search_query`; FlashCoder sends one Responses API round with the same
-credential and the built-in `web_search` tool, and feeds the provider's
-search-grounded answer back as the tool result. Sessions opened before this
-feature keep their frozen tools ABI and never search.
+### Cache behavior stays visible
 
-## Bash execution boundary
+Cache eligibility, actual cache reads, planned breaks, cost, and lineage changes
+remain observable. Provider cache hits are best-effort—FlashCoder does not turn
+an architectural objective into a fake guarantee.
 
-`bash` runs directly as the current user, with the same authority you have. It
-can read any file your account can read, including credentials outside the
-workspace, and its writes are not confined to the project directory.
+## Web Search
 
-There is no sandbox. If you need one, run FlashCoder inside a container, a
-virtual machine, or a separate Unix account. Treat it as you would treat running
-a script someone sent you.
+New sessions expose DeepSeek's official server-side `web_search` tool. When the
+model needs information outside the workspace, FlashCoder performs a grounded
+Responses API round and records the result like any other tool output.
+
+Sessions keep a frozen tool ABI, so sessions created before web search was
+introduced do not silently gain a new tool halfway through their history.
+
+## Security
+
+> [!WARNING]
+> FlashCoder runs `bash` as your current user. It has the same filesystem and
+> process authority you do. It is **not a sandbox**.
+
+For stronger isolation, run FlashCoder inside a container, virtual machine, or
+separate Unix account. Treat it with the same care as a script you intend to run
+locally.
+
+## From Source
+
+```sh
+git clone https://github.com/Owen718/FlashCoder
+cd FlashCoder
+npm install
+npm run build
+npm link
+```
 
 ## Development
 
 ```sh
-npm run build            # two passes: the vendored TUI, then the strict project
-npm run check            # build, then the packaging and supply-chain checks
-npm test                 # every suite
-npm run test:acceptance  # three fixed tasks, proved fail→pass without a model
-npm run release          # pack, then install and run the tarball to prove it works
+npm run build            # build the vendored TUI, then the strict project
+npm run check            # build plus packaging and supply-chain checks
+npm test                 # run every suite
+npm run test:acceptance  # prove three fixed tasks fail → pass without a model
+npm run release          # pack, install, and smoke-test the release tarball
 ```
 
-Tests are grouped by area under `test/`: `protocol`, `context`, `journal`,
-`session`, `cli`, `effects`, `recovery`, `cost`.
+Tests are grouped by contract under `test/`: `protocol`, `context`, `journal`,
+`session`, `cli`, `effects`, `recovery`, and `cost`.
 
-## Third-party code
+<details>
+<summary><strong>Upgrading from SimpleDSH</strong></summary>
 
-`src/tui/` is vendored from [pi](https://github.com/earendil-works/pi) at
-`05bf9df`, MIT, Copyright (c) 2025 Mario Zechner. Each file records its
-upstream path; the licence is in `LICENSE.pi`.
+FlashCoder was named SimpleDSH through `v0.1.0-rc.2`. Existing durable state is
+preserved rather than rewritten:
 
-FlashCoder is an independent project. It is not affiliated with, endorsed by, or
-sponsored by DeepSeek.
+- Workspaces with `.dsh/` keep using it; new workspaces use `.flashcoder/`.
+- `~/.config/dsh/credentials` remains readable until the next login migrates it.
+- Existing sessions retain their frozen Cache ABI and continue without a cache
+  break.
+
+Remove the previous command with:
+
+```sh
+npm uninstall -g simpledsh
+```
+
+</details>
+
+## Third-party Code
+
+`src/tui/` is vendored from [Pi](https://github.com/badlogic/pi-mono) at
+`05bf9df`, under the MIT License. Each vendored file records its upstream path;
+the upstream license is included in `LICENSE.pi`.
+
+FlashCoder is an independent project. It is not affiliated with, endorsed by,
+or sponsored by DeepSeek.
+
+## License
+
+[MIT](LICENSE)
