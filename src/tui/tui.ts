@@ -12,6 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
 import { isKeyRelease, matchesKey } from "./keys.js";
+import { isMouseSequence } from "./mouse.js";
 import type { Terminal } from "./terminal.js";
 import {
 	isOsc11BackgroundColorResponse,
@@ -321,6 +322,14 @@ export interface TUI extends Component {
 	setTerminalColorSchemeNotifications(enabled: boolean): void;
 	queryTerminalBackgroundColor(options: { timeoutMs: number }): Promise<RgbColor | undefined>;
 	queryTerminalColorScheme(options: { timeoutMs: number }): Promise<TerminalColorScheme | undefined>;
+	/** Scroll the rendered content up by `lines` rows (positive) or down (negative). */
+	scrollBy(lines: number): void;
+	/** Return to the newest content, exactly as if the user had never scrolled. */
+	scrollToBottom(): void;
+	/** Scroll back as far as the content goes. */
+	scrollToTop(): void;
+	/** True while the user is looking at history rather than the newest content. */
+	isScrolled(): boolean;
 }
 
 export const VIEWPORT_TUI = Symbol.for("@earendil-works/pi-tui/viewport");
@@ -414,6 +423,35 @@ export abstract class TuiBase extends Container implements TUI {
 	 */
 	setClearOnShrink(enabled: boolean): void {
 		this.clearOnShrink = enabled;
+	}
+
+	/**
+	 * Rows the user has scrolled back from the newest content (0 = at the
+	 * bottom). The renderer clamps it to the actual content length; the large
+	 * value `scrollToTop` writes is only ever read through that clamp.
+	 */
+	protected scrollOffset = 0;
+
+	/** Scroll the content by `lines` rows: positive looks back into history, negative returns toward the newest content. */
+	scrollBy(lines: number): void {
+		if (lines === 0) return;
+		this.scrollOffset = Math.max(0, this.scrollOffset + lines);
+		this.requestRender();
+	}
+
+	scrollToBottom(): void {
+		if (this.scrollOffset === 0) return;
+		this.scrollOffset = 0;
+		this.requestRender();
+	}
+
+	scrollToTop(): void {
+		this.scrollOffset = Number.MAX_SAFE_INTEGER;
+		this.requestRender();
+	}
+
+	isScrolled(): boolean {
+		return this.scrollOffset > 0;
 	}
 
 	getFocusedComponent(): Component | null {
@@ -843,6 +881,14 @@ export abstract class TuiBase extends Container implements TUI {
 
 		// Consume terminal cell size responses without blocking unrelated input.
 		if (this.consumeCellSizeResponse(data)) {
+			return;
+		}
+
+		// Mouse reports are always consumed: nothing downstream understands
+		// them, and letting one through could type garbage into the focused
+		// component. (The screen layer handles wheel scrolling before this;
+		// this is the backstop for any other consumer of the TUI.)
+		if (isMouseSequence(data)) {
 			return;
 		}
 

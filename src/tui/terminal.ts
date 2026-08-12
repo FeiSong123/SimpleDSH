@@ -152,6 +152,20 @@ export class ProcessTerminal implements Terminal {
 		// Enable bracketed paste mode - terminal will wrap pastes in \x1b[200~ ... \x1b[201~
 		process.stdout.write("\x1b[?2004h");
 
+		// Mouse tracking is off by default: FlashCoder renders into the main
+		// screen, so every line it outputs lives in the terminal's scrollback.
+		// Letting the terminal own the mouse keeps both native behaviours
+		// working: the wheel scrolls that scrollback, and click-drag still
+		// selects and copies text.
+		//
+		// The exception is tmux, where the wheel and click-drag belong to tmux.
+		// Enabling SGR mouse tracking (1002 + 1006) forwards wheel events to
+		// the Screen layer's input listener, which scrolls the internal history
+		// viewport. Without this the wheel does nothing useful inside tmux.
+		if (process.env["TMUX"]) {
+			process.stdout.write("\x1b[?1002h\x1b[?1006h");
+		}
+
 		// Set up resize handler immediately
 		process.stdout.on("resize", this.resizeHandler);
 
@@ -383,6 +397,9 @@ export class ProcessTerminal implements Terminal {
 			setKittyProtocolActive(false);
 		}
 		this.disableModifyOtherKeys();
+		if (process.env["TMUX"]) {
+			process.stdout.write("\x1b[?1002l\x1b[?1006l");
+		}
 
 		const previousHandler = this.inputHandler;
 		this.inputHandler = undefined;
@@ -416,6 +433,9 @@ export class ProcessTerminal implements Terminal {
 
 		// Disable bracketed paste mode
 		process.stdout.write("\x1b[?2004l");
+		if (process.env["TMUX"]) {
+			process.stdout.write("\x1b[?1002l\x1b[?1006l");
+		}
 
 		const shouldDisableKittyProtocol = this.keyboardProtocolPushed || this._kittyProtocolActive;
 		this.clearKeyboardProtocolNegotiationBuffer();

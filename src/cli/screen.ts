@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -13,7 +14,10 @@ import {
   type Component,
   type SlashCommand,
   isKeyRelease,
+  isWheelDown,
+  isWheelUp,
   matchesKey,
+  parseSgrMouseEvent,
   type Terminal,
   type TuiInputListenerResult,
 } from "../tui/index.js";
@@ -23,6 +27,9 @@ const CTRL_C = "\u0003";
 const ENTER = "\r";
 const CTRL_D = "\u0004";
 const ESCAPE = "\u001b";
+
+/** Rows one wheel notch scrolls, matching the feel of prime-agent. */
+const WHEEL_SCROLL_LINES = 3;
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const SPINNER_INTERVAL_MS = 90;
@@ -130,10 +137,18 @@ export class Screen {
     rows: readonly string[];
     at: number;
   }> | null = null;
+  /**
+   * Whether a tmux setup hint should be shown: the probe said the tmux
+   * `mouse` option is off (or could not be read). With it off neither the
+   * wheel nor click-drag works in tmux.
+   */
+  #tmuxWheelHint = false;
+  #attached = false;
   readonly #commandNames: ReadonlySet<string>;
 
   constructor(options: ScreenOptions) {
     this.#commandNames = new Set(options.commands.map(({ name }) => `/${name}`));
+    if (process.env["TMUX"]) this.#probeTmuxMouse();
     // Where the renderer writes its own diagnostics if it ever crashes. Beside
     // the credentials rather than in the workspace, which belongs to the user
     // and is usually under version control.
@@ -440,7 +455,58 @@ export class Screen {
    * They are taken before the focused component sees them, so Ctrl-C reaches a
    * running turn while the editor holds focus. Everything else falls through.
    */
+  /**
+   * Ask tmux whether its mouse option is on. With the option off the wheel
+   * and click-drag do nothing useful in tmux; the check runs once at startup
+   * and never blocks the screen.
+   */
+  #probeTmuxMouse(): void {
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn("tmux", ["show", "-gv", "mouse"], {
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      this.#tmuxWheelHint = true;
+      this.#maybeShowTmuxHint();
+      return;
+    }
+    let stdout = "";
+    const timer = setTimeout(() => {
+      proc.kill();
+      this.#tmuxWheelHint = true;
+      this.#maybeShowTmuxHint();
+    }, 500);
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    proc.on("error", () => {
+      clearTimeout(timer);
+      this.#tmuxWheelHint = true;
+      this.#maybeShowTmuxHint();
+    });
+    proc.on("close", () => {
+      clearTimeout(timer);
+      this.#tmuxWheelHint = stdout.trim() !== "on";
+      this.#maybeShowTmuxHint();
+    });
+  }
+
+  /** Show the tmux hint once, briefly, if the probe answered "off". */
+  #maybeShowTmuxHint(): void {
+    if (!this.#tmuxWheelHint || !this.#attached) return;
+    this.note("tmux: 滚轮滚动与鼠标复制需要 mouse 模式，运行 tmux set -g mouse on");
+    const timer = setTimeout(() => {
+      this.note("");
+    }, 8000);
+    timer.unref();
+  }
+
   attach(handlers: ScreenHandlers): void {
+    // In tmux the wheel and click-drag belong to tmux, and only work with
+    // its mouse option on. Say so once, briefly, at startup.
+    this.#attached = true;
+    this.#maybeShowTmuxHint();
     this.#editor.onSubmit = (text) => {
       handlers.onSubmit(text);
     };
@@ -508,6 +574,39 @@ export class Screen {
         }
         return { consume: true };
       }
+      // Wheel turns scroll the transcript history when the terminal delivers
+      // them as SGR mouse sequences. Inside tmux mouse tracking (1002+1006)
+      // is enabled at startup so the wheel reaches this handler; outside
+      // tmux terminals keep the wheel for their own scrollback, which is
+      // fine because FlashCoder renders into the main screen. Clicks are
+      // consumed as well: there is no click action, and letting them through
+      // would type garbage into the editor.
+      const mouse = parseSgrMouseEvent(data);
+      if (mouse !== null) {
+        if (isWheelUp(mouse)) this.#tui.scrollBy(WHEEL_SCROLL_LINES);
+        else if (isWheelDown(mouse)) this.#tui.scrollBy(-WHEEL_SCROLL_LINES);
+        return { consume: true };
+      }
+      // PageUp/PageDown move one viewport, Home/End jump to the edges.
+      // Scrolling up leaves the newest content; anything that types or runs
+      // (handled below) drops the reader back to it first.
+      if (matchesKey(data, "pageUp")) {
+        this.#tui.scrollBy(Math.max(1, this.#tui.terminal.rows - 2));
+        return { consume: true };
+      }
+      if (matchesKey(data, "pageDown")) {
+        this.#tui.scrollBy(-Math.max(1, this.#tui.terminal.rows - 2));
+        return { consume: true };
+      }
+      if (matchesKey(data, "home")) {
+        this.#tui.scrollToTop();
+        return { consume: true };
+      }
+      if (matchesKey(data, "end")) {
+        this.#tui.scrollToBottom();
+        return { consume: true };
+      }
+      if (this.#tui.isScrolled()) this.#tui.scrollToBottom();
       // Under the Kitty protocol Ctrl-C and Ctrl-D are `ESC [ 99 ; 5 u` and
       // `ESC [ 100 ; 5 u`, not the control bytes, so comparing bytes meant
       // neither interrupt nor exit reached this listener at all.

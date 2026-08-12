@@ -70,6 +70,16 @@ export {
 } from "./keys.js";
 // Input buffering for batch splitting
 export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.js";
+// SGR mouse events (wheel scrolling)
+export {
+	isMouseSequence,
+	isWheelDown,
+	isWheelUp,
+	MOUSE_WHEEL_DOWN,
+	MOUSE_WHEEL_UP,
+	type MouseEvent,
+	parseSgrMouseEvent,
+} from "./mouse.js";
 // Terminal interface and implementations
 export { ProcessTerminal, type Terminal } from "./terminal.js";
 // Terminal colors

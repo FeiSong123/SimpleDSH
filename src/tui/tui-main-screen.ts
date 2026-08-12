@@ -70,6 +70,8 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	private hardwareCursorRow = 0;
 	private maxLinesRendered = 0;
 	private previousViewportTop = 0;
+	/** True while the screen is showing a history window rather than the newest content. */
+	private scrollModeActive = false;
 
 	captureRenderState(): TuiMainScreenRenderState {
 		return {
@@ -213,12 +215,18 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		newLines = this.applyLineResets(newLines);
 
 		// Helper to clear scrollback and viewport and render all new lines
-		const fullRender = (clear: boolean): void => {
+		// `clearScrollback` is false for the history viewport: entering or
+		// leaving it redraws the screen without destroying the terminal's own
+		// scrollback, so tmux copy-mode history survives the round trip.
+		const fullRender = (clear: boolean, clearScrollback = true): void => {
 			this.fullRedrawCount += 1;
 			let buffer = "\x1b[?2026h"; // Begin synchronized output
 			if (clear) {
 				buffer += this.deleteKittyImages(this.previousKittyImageIds);
-				buffer += "\x1b[2J\x1b[H\x1b[3J"; // Clear screen, home, then clear scrollback
+				buffer += "\x1b[2J\x1b[H"; // Clear screen and home
+				if (clearScrollback) {
+					buffer += "\x1b[3J"; // Clear scrollback
+				}
 			}
 			for (let i = 0; i < newLines.length; i++) {
 				if (i > 0) buffer += "\r\n";
@@ -264,6 +272,37 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			fs.mkdirSync(path.dirname(logPath), { recursive: true });
 			fs.appendFileSync(logPath, msg);
 		};
+
+		// History viewport: when the user has scrolled back (wheel, PageUp,
+		// PageDown, Home, End), show a window into the rendered content
+		// instead of its tail. `scrollOffset` counts rows back from the newest
+		// content, so the window is `content[len - height - offset, len - offset)`.
+		// Entering and leaving the window redraws the screen without clearing
+		// the terminal scrollback, so tmux and native terminal history survive
+		// the round trip. While inside the window the differential renderer
+		// keeps working on the window's rows; leaving it records the window in
+		// previousLines, so the next content change redraws once from row 0
+		// and then continues seamlessly.
+		const maxScrollOffset = Math.max(0, newLines.length - height);
+		const targetOffset = Math.min(this.scrollOffset, maxScrollOffset);
+		const enteringScroll = targetOffset > 0 && !this.scrollModeActive;
+		const leavingScroll = targetOffset === 0 && this.scrollModeActive;
+		if (enteringScroll || leavingScroll) {
+			this.scrollModeActive = enteringScroll;
+			this.scrollOffset = targetOffset;
+			const start = newLines.length - height - targetOffset;
+			const windowLines = newLines.slice(start, start + height);
+			while (windowLines.length < height) windowLines.push("");
+			newLines = windowLines;
+			fullRender(true, false);
+			return;
+		}
+		if (this.scrollModeActive) {
+			this.scrollOffset = targetOffset;
+			const start = newLines.length - height - targetOffset;
+			newLines = newLines.slice(start, start + height);
+			while (newLines.length < height) newLines.push("");
+		}
 
 		// First render - just output everything without clearing (assumes clean screen)
 		if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
