@@ -33,3 +33,4 @@ release/
 .prime/
 Library/
 package-lock.json
+.npm/
