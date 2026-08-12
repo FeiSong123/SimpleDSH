@@ -297,6 +297,7 @@ test("cost projection prices native usage once and reports durable telemetry", a
     indeterminate: "0",
     reconciledCompleted: "0",
     reconciledProvenNotExecuted: "1",
+    reconciledDenied: "0",
     indeterminateObserved: "1",
   });
   assert.deepEqual(report.telemetry.unpricedAttempts, {

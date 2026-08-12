@@ -67,7 +67,7 @@ export type RecoveryStepV1 =
       readonly runId: RunId;
       readonly assistantEventId: EventId;
       readonly toolCallId: ToolCallId;
-      readonly mode: "execute" | "reconstruct";
+      readonly mode: "execute" | "reconstruct" | "deny";
       readonly effectId: EffectId | null;
       readonly artifactId: ArtifactId | null;
       readonly sourceEventId: EventId | null;
@@ -366,6 +366,19 @@ export function planRecoveryStepV1(
       });
     }
     if (effect?.status === "prepared") return invalidRecoveryState();
+    if (effect?.status === "reconciled_denied") {
+      if (effect.terminalEventId === null) return invalidRecoveryState();
+      return Object.freeze({
+        kind: "resume_tool",
+        runId: current.runId as RunId,
+        assistantEventId: pending.assistantEventId as EventId,
+        toolCallId: toolCallId as ToolCallId,
+        mode: "deny",
+        effectId: effect.effectId as EffectId,
+        artifactId: null,
+        sourceEventId: effect.terminalEventId as EventId,
+      });
+    }
     if (effect === undefined) {
       const artifact = directArtifact(view, toolCallId);
       if (artifact !== undefined) {

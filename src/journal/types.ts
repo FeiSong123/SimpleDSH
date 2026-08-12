@@ -330,6 +330,11 @@ export interface JournalPayloadByType {
         readonly effectId: EffectId;
         readonly resolution: "proven_not_executed";
         readonly evidenceArtifactId: ArtifactId;
+      }
+    | {
+        readonly effectId: EffectId;
+        readonly resolution: "not_executed_denied";
+        readonly evidenceArtifactId: ArtifactId;
       };
   readonly tool_result_committed: BlobPayload<"tool"> & {
     readonly toolCallId: ToolCallId;

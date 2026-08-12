@@ -96,7 +96,11 @@ import {
   planRecoveryStepV1,
   recoveryEventById,
 } from "./recovery.js";
-import { resumeRecoveryToolV1 } from "./recovery-runtime.js";
+import {
+  resumeRecoveryToolV1,
+  RecoveryExecutionDeniedError,
+  type RecoveryExecuteConfirmation,
+} from "./recovery-runtime.js";
 import {
   applyReconciliationV1,
   parseReconciliationEvidenceV1,
@@ -187,7 +191,15 @@ interface SessionBaseInput extends KernelCommonInput {
   readonly acceptanceBudget?: SessionAcceptanceBudget;
 }
 
-interface RecoverySessionBaseInput extends KernelCommonInput {}
+interface RecoverySessionBaseInput extends KernelCommonInput {
+  /**
+   * Operator gate before the recovery executes a pending tool call. Absent in
+   * fixtures and programmatic callers; the CLI supplies it to disclose the
+   * command and require explicit confirmation before any recovery-time
+   * execution.
+   */
+  readonly confirmExecute?: RecoveryExecuteConfirmation;
+}
 
 export interface OfficialSessionInput extends SessionBaseInput {
   readonly credential: DeepSeekCredential;
@@ -1424,6 +1436,9 @@ async function prepareRecovery(
             lineageId: lineageId!,
             signal,
             webSearch,
+            ...(input.confirmExecute === undefined
+              ? {}
+              : { confirmExecute: input.confirmExecute }),
           });
         } catch (error) {
           if (signal.aborted) throw new SessionInterruptedError("cancelled");
@@ -2282,6 +2297,27 @@ async function runKernel(
       });
       let results;
       try {
+        if (
+          "confirmExecute" in input &&
+          input.confirmExecute !== undefined &&
+          opened.writer.events.some(
+            (event) =>
+              event.type === "run_started" &&
+              event.runId === runId &&
+              event.payload.cause === "recovery",
+          )
+        ) {
+          for (const call of response.toolCalls) {
+            const allowed = await input.confirmExecute(
+              Object.freeze({
+                toolCallId: call.id,
+                name: call.function.name,
+                argumentsText: call.function.arguments,
+              }),
+            );
+            if (!allowed) throw new RecoveryExecutionDeniedError();
+          }
+        }
         results = await new ToolRuntime({
           durability,
           cwd: resolve(input.workspaceRoot),

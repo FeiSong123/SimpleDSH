@@ -418,10 +418,16 @@ test("recover refuses a stale writer lease until its exact inspected fingerprint
   // The refusal is the point, but so is telling the operator what to do next:
   // taking a lease is deliberate, and the code alone left nobody a way to find
   // out what has to be named.
-  assert.match(refused.stderr, /^flashcoder: journal_lease_held\n/u);
-  assert.match(refused.stderr, /--quarantine-fingerprint/u);
-  assert.match(refused.stderr, /--confirm-no-concurrent-start/u);
-  assert.match(refused.stderr, /flashcoder inspect <session-id>/u);
+  assert.equal(
+    refused.stderr,
+    `flashcoder: journal_lease_held\n` +
+      `flashcoder:   the writer lease for ${id} is held by pid 2147483647 (acquired ${FIXED_AT}); the owner process is not running on this host,\n` +
+      `flashcoder:   but on a shared filesystem the owner may still be alive on another machine\n` +
+      `flashcoder:   quarantine the lease and retry, only if you are certain no other process is writing this session:\n` +
+      `flashcoder:     flashcoder recover ${id} --quarantine-fingerprint ${fingerprint} --confirm-no-concurrent-start\n` +
+      `flashcoder:   or, when the owner process died on this host:\n` +
+      `flashcoder:     flashcoder recover ${id} --quarantine-stale\n`,
+  );
   assert.deepEqual(await treeSnapshot(root), beforeRefusal);
 
   const recovered = runCli([
@@ -447,6 +453,99 @@ test("recover refuses a stale writer lease until its exact inspected fingerprint
     await readFile(join(paths.sessionDir, quarantine, "writer.lock", "owner.json"), "utf8"),
     ownerBytes,
   );
+});
+
+test("recover --quarantine-stale removes a lease proven dead on this host and proceeds", async (t) => {
+  const root = await workspace(t, "quarantine-stale");
+  const id = sessionId("d");
+  const content = "completed after quarantine-stale";
+  await createCompletedSession(root, id, "d", content);
+  const paths = createSessionPaths(root, id);
+  await mkdir(paths.writerLockDir, { mode: 0o700 });
+  const staleOwner: WriterLeaseOwner = Object.freeze({
+    v: 1,
+    pid: 2_147_483_647,
+    nonce: "e".repeat(32),
+    acquiredAt: FIXED_AT,
+  });
+  const ownerBytes = `${JSON.stringify(staleOwner)}\n`;
+  await writeFile(join(paths.writerLockDir, "owner.json"), ownerBytes, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+
+  const inspected = runCli(["inspect", id], root);
+  assert.equal(inspected.status, 0);
+  const report = jsonRecord(inspected.stdout);
+  const observation = childRecord(report, "observation");
+  const fingerprint = childRecord(observation, "initialLease")["fingerprint"];
+
+  const recovered = runCli(["recover", id, "--quarantine-stale"], root);
+  assert.equal(recovered.status, 0);
+  assert.equal(recovered.stdout, content);
+  assert.equal(
+    recovered.stderr,
+    `flashcoder: writer_lease_quarantined=${fingerprint}\n${COMPLETED_STATUS_LINE}`,
+  );
+  await assert.rejects(lstat(paths.writerLockDir), { code: "ENOENT" });
+  const sessionEntries = await readdir(paths.sessionDir);
+  const quarantine = sessionEntries.find((name) =>
+    name.startsWith(".writer-quarantine-"),
+  );
+  assert.ok(quarantine);
+  assert.equal(
+    await readFile(join(paths.sessionDir, quarantine, "writer.lock", "owner.json"), "utf8"),
+    ownerBytes,
+  );
+});
+
+test("recover --quarantine-stale refuses a live writer lease and leaves it alone", async (t) => {
+  const root = await workspace(t, "quarantine-stale-live");
+  const id = sessionId("f");
+  const content = "must not complete";
+  await createCompletedSession(root, id, "f", content);
+  const paths = createSessionPaths(root, id);
+  await mkdir(paths.writerLockDir, { mode: 0o700 });
+  const liveOwner: WriterLeaseOwner = Object.freeze({
+    v: 1,
+    pid: process.pid,
+    nonce: "f".repeat(32),
+    acquiredAt: FIXED_AT,
+  });
+  const ownerBytes = `${JSON.stringify(liveOwner)}\n`;
+  await writeFile(join(paths.writerLockDir, "owner.json"), ownerBytes, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  const before = await treeSnapshot(root);
+
+  const refused = runCli(["recover", id, "--quarantine-stale"], root);
+  assert.equal(refused.status, 5);
+  assert.equal(refused.stdout, "");
+  assert.equal(
+    refused.stderr,
+    `flashcoder: writer lease is live: pid ${process.pid} is still running on this host; stop that flashcoder process instead of quarantining\n`,
+  );
+  assert.deepEqual(await treeSnapshot(root), before);
+});
+
+test("recover rejects --quarantine-stale combined with the fingerprint options", async (t) => {
+  const root = await workspace(t, "quarantine-stale-exclusive");
+  const id = sessionId("a");
+  await createCompletedSession(root, id, "a", "unused");
+  const fingerprint = "sha256:" + "0".repeat(64);
+
+  const refused = runCli([
+    "recover",
+    id,
+    "--quarantine-stale",
+    "--quarantine-fingerprint",
+    fingerprint,
+    "--confirm-no-concurrent-start",
+  ], root);
+  assert.equal(refused.status, 2);
+  assert.equal(refused.stdout, "");
+  assert.equal(refused.stderr, "flashcoder: invalid_invocation\n");
 });
 
 test("reconcile preserves exact evidence bytes and reaches the durable Boundary before lazy credential failure", async (t) => {
@@ -548,4 +647,129 @@ test("reconcile preserves exact evidence bytes and reaches the durable Boundary 
     events.filter((event) => event.type === "run_interrupted").length,
     interruptionsBefore,
   );
+});
+
+test("reconcile with not_executed_denied never executes the command and feeds a static denied result", async (t) => {
+  const root = await workspace(t, "reconcile-execute-denied");
+  const id = sessionId("4");
+  const ids = eventIds("4");
+  const markerPath = join(root, "must-not-run.txt");
+  const effectId = await seedIndeterminateEffect(root, id, ids, markerPath);
+  const evidencePath = join(root, "evidence-denied.json");
+  const evidenceText = `${JSON.stringify({
+    v: 1,
+    effectId,
+    resolution: "not_executed_denied",
+    statement: "operator refuses to execute this command",
+  })}\n`;
+  await writeFile(evidencePath, evidenceText, "utf8");
+
+  const result = runCli(["reconcile", id, evidencePath], root);
+  assert.equal(result.status, 3);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /credential_missing/u);
+  await assert.rejects(lstat(markerPath), { code: "ENOENT" });
+
+  const after = await openJournalReadOnly(root, id);
+  const events = after.replay.events;
+  const reconciled = events.find(
+    (event) =>
+      event.type === "effect_reconciled" &&
+      event.payload.effectId === effectId,
+  );
+  assert.ok(reconciled?.type === "effect_reconciled");
+  assert.equal(reconciled.payload.resolution, "not_executed_denied");
+  assert.equal(
+    events.filter(
+      (event) =>
+        event.type === "effect_prepared" &&
+        event.payload.toolCallId === "call_cli_reconcile",
+    ).length,
+    1,
+  );
+  const committed = events.filter(
+    (event) => event.type === "tool_result_committed",
+  );
+  assert.equal(committed.length, 1);
+  const resultEvent = committed[0];
+  assert.ok(resultEvent?.type === "tool_result_committed");
+  assert.equal(resultEvent.payload.effectId, null);
+  assert.equal(resultEvent.payload.artifactId, null);
+  assert.equal(resultEvent.payload.sourceEventId, reconciled.id);
+  assert.ok(
+    events.some(
+      (event) =>
+        event.type === "commit_boundary_created" &&
+        event.payload.sourceEventIds.includes(resultEvent.id),
+    ),
+  );
+});
+
+test("recover reports a session outside the current workspace instead of a bootstrap error", async (t) => {
+  const root = await workspace(t, "recover-wrong-workspace");
+  const other = await workspace(t, "recover-other-workspace");
+  const id = sessionId("b");
+  await createCompletedSession(root, id, "b", "unused");
+
+  const refused = runCli(["recover", id], other);
+  assert.equal(refused.status, 2);
+  assert.equal(refused.stdout, "");
+  assert.match(refused.stderr, /no such session in this workspace/u);
+  assert.match(refused.stderr, /searched/u);
+
+  const inspected = runCli(["inspect", id], other);
+  assert.equal(inspected.status, 2);
+  assert.equal(inspected.stdout, "");
+  assert.match(inspected.stderr, /no such session in this workspace/u);
+});
+
+test("reconcile refuses to execute a pending tool call without --confirm-execute, and runs it exactly once with it", async (t) => {
+  const root = await workspace(t, "reconcile-execute-confirm");
+  const id = sessionId("9");
+  const ids = eventIds("9");
+  const markerPath = join(root, "must-not-run.txt");
+  const effectId = await seedIndeterminateEffect(root, id, ids, markerPath);
+  const evidencePath = join(root, "evidence.json");
+  const evidenceText = `${JSON.stringify({
+    v: 1,
+    effectId,
+    resolution: "proven_not_executed",
+    statement: "operator verified the command never ran",
+  })}\n`;
+  await writeFile(evidencePath, evidenceText, "utf8");
+
+  const refused = runCli(["reconcile", id, evidencePath], root);
+  assert.equal(refused.status, 5);
+  assert.equal(refused.stdout, "");
+  assert.match(refused.stderr, /recovery will execute the pending tool call/u);
+  assert.match(refused.stderr, /printf SHOULD_NOT_RUN/u);
+  assert.match(
+    refused.stderr,
+    /recovery_execution_requires_confirmation/u,
+  );
+  assert.match(refused.stderr, /recovery_execution_denied/u);
+  await assert.rejects(lstat(markerPath), { code: "ENOENT" });
+
+  const confirmed = runCli(
+    ["reconcile", id, evidencePath, "--confirm-execute"],
+    root,
+  );
+  assert.equal(confirmed.status, 3);
+  assert.match(confirmed.stderr, /recovery will execute the pending tool call/u);
+  assert.match(confirmed.stderr, /credential_missing/u);
+  await assert.doesNotReject(lstat(markerPath));
+  const markerContent = await readFile(markerPath, "utf8");
+  assert.equal(markerContent, "SHOULD_NOT_RUN");
+
+  const after = await openJournalReadOnly(root, id);
+  const committed = after.replay.events.filter(
+    (event) => event.type === "tool_result_committed",
+  );
+  assert.equal(committed.length, 1);
+  const boundaries = after.replay.events.filter(
+    (event) =>
+      event.type === "commit_boundary_created" &&
+      event.payload.sourceEventIds.includes(committed[0]!.id),
+  );
+  assert.equal(boundaries.length, 1);
 });

@@ -6,6 +6,7 @@ import {
   type ToolTerminal,
 } from "../artifact/index.js";
 import { createArtifactToolResultProjector } from "../artifact/tool-result.js";
+import { materializeToolResultMessage } from "../bytes/tool-result.js";
 import type { BlobPosition, BlobStore } from "../blob/index.js";
 import type { ToolCallId } from "../bytes/tool-call-id.js";
 import type { ValidatedToolArguments } from "../bytes/tool-arguments.js";
@@ -34,6 +35,34 @@ type ResumeToolStep = Extract<
   RecoveryStepV1,
   { readonly kind: "resume_tool" }
 >;
+
+/**
+ * A tool call the recovery is about to execute. `argumentsText` is the exact
+ * `function.arguments` JSON string from the assistant bytes, unparsed.
+ */
+export interface RecoveryExecuteCandidate {
+  readonly toolCallId: string;
+  readonly name: string;
+  readonly argumentsText: string;
+}
+
+/**
+ * Operator gate before the recovery executes a pending tool call. Returning
+ * false stops the recovery without executing, without fabricating a result,
+ * and without continuing the model loop; the durable facts already appended
+ * (evidence Artifact, `effect_reconciled`) remain the honest record.
+ */
+export type RecoveryExecuteConfirmation = (
+  candidate: RecoveryExecuteCandidate,
+) => Promise<boolean>;
+
+/** Thrown when the operator declined an execution the recovery needed. */
+export class RecoveryExecutionDeniedError extends Error {
+  constructor() {
+    super("recovery tool execution denied by the operator");
+    this.name = "RecoveryExecutionDeniedError";
+  }
+}
 
 function invalidRecoveryRuntime(): never {
   throw new TypeError("durable recovery tool state is inconsistent");
@@ -175,6 +204,7 @@ export async function resumeRecoveryToolV1(input: Readonly<{
   readonly lineageId: LineageId;
   readonly signal: AbortSignal;
   readonly webSearch: DeepSeekWebSearchExecutor;
+  readonly confirmExecute?: RecoveryExecuteConfirmation;
 }>): Promise<void> {
   const calls = await loadAssistantCalls(
     input.opened.writer.events,
@@ -203,6 +233,16 @@ export async function resumeRecoveryToolV1(input: Readonly<{
   });
 
   if (input.step.mode === "execute") {
+    if (input.confirmExecute !== undefined) {
+      const allowed = await input.confirmExecute(
+        Object.freeze({
+          toolCallId: call.id,
+          name: call.function.name,
+          argumentsText: call.function.arguments,
+        }),
+      );
+      if (!allowed) throw new RecoveryExecutionDeniedError();
+    }
     const results = await new ToolRuntime({
       durability,
       cwd: resolve(input.workspaceRoot),
@@ -216,6 +256,30 @@ export async function resumeRecoveryToolV1(input: Readonly<{
     if (results.length !== 1 || results[0]?.toolCallId !== call.id) {
       invalidRecoveryRuntime();
     }
+    return;
+  }
+
+  if (
+    input.step.mode === "deny"
+  ) {
+    if (
+      input.step.effectId === null ||
+      input.step.sourceEventId === null
+    ) {
+      invalidRecoveryRuntime();
+    }
+    const deniedBytes = materializeToolResultMessage(call.id, {
+      kind: "static",
+      status: "denied",
+      code: "permission_denied",
+    });
+    await durability.commitResult({
+      toolCallId: call.id as ToolCallId,
+      effectId: null,
+      artifactId: null,
+      sourceEventId: input.step.sourceEventId,
+      messageBytes: deniedBytes,
+    });
     return;
   }
 

@@ -51,6 +51,12 @@ export type ReconciliationDocumentV1 =
   | Readonly<{
       readonly v: 1;
       readonly effectId: EffectId;
+      readonly resolution: "not_executed_denied";
+      readonly statement: string;
+    }>
+  | Readonly<{
+      readonly v: 1;
+      readonly effectId: EffectId;
       readonly resolution: "completed";
       readonly statement: string;
       readonly terminal: EffectTerminal;
@@ -258,6 +264,15 @@ export function parseReconciliationEvidenceV1(
   if (!isPlainRecord(parsed) || parsed["v"] !== 1) invalidEvidence();
   const resolution = parsed["resolution"];
   if (resolution === "proven_not_executed") {
+    exactKeys(parsed, ["v", "effectId", "resolution", "statement"]);
+    return Object.freeze({
+      v: 1,
+      effectId: effectId(parsed["effectId"]),
+      resolution,
+      statement: operatorStatement(parsed["statement"]),
+    });
+  }
+  if (resolution === "not_executed_denied") {
     exactKeys(parsed, ["v", "effectId", "resolution", "statement"]);
     return Object.freeze({
       v: 1,
@@ -537,7 +552,12 @@ async function validateExistingReconciliation(
   ) {
     conflictingEvidence();
   }
-  if (document.resolution === "proven_not_executed") return;
+  if (
+    document.resolution === "proven_not_executed" ||
+    document.resolution === "not_executed_denied"
+  ) {
+    return;
+  }
   if (event.payload.resolution !== "completed") conflictingEvidence();
   const effect = opened.recoveryView().effects.find(
     ({ effectId }) => effectId === document.effectId,
@@ -603,7 +623,8 @@ export async function applyReconciliationV1(input: Readonly<{
     scope,
     input.evidenceBytes,
   );
-  if (input.document.resolution === "proven_not_executed") {
+  if (input.document.resolution === "proven_not_executed" ||
+      input.document.resolution === "not_executed_denied") {
     const event = await input.opened.writer.append({
       type: "effect_reconciled",
       sessionId: input.sessionId,
@@ -611,7 +632,7 @@ export async function applyReconciliationV1(input: Readonly<{
       runId: scope.runId,
       payload: {
         effectId: input.document.effectId,
-        resolution: "proven_not_executed",
+        resolution: input.document.resolution,
         evidenceArtifactId: evidence.payload.artifactId,
       },
     });

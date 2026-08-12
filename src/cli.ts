@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 
 import { sha256Hex } from "./bytes/ops.js";
 import {
@@ -59,6 +60,10 @@ import {
   type ToolActivity,
 } from "./session/index.js";
 import { ReconciliationInputError } from "./session/reconcile.js";
+import {
+  RecoveryExecutionDeniedError,
+  type RecoveryExecuteCandidate,
+} from "./session/recovery-runtime.js";
 import type { GateSpec } from "./verify/gate.js";
 import type { DeepSeekSemanticFragment } from "./ds/types.js";
 
@@ -95,6 +100,16 @@ Quarantine options (recover/reconcile only):
        --quarantine-fingerprint <sha256:...>
        --confirm-no-concurrent-start
        [--force-ambiguous]
+       --quarantine-stale          remove a writer lease proven dead on this
+                                   host, then proceed (mutually exclusive with
+                                   the fingerprint options)
+
+Recovery execution (recover/reconcile only):
+       --confirm-execute           allow the recovery to execute a pending tool
+                                   call. Without it, recover/reconcile refuse
+                                   before executing anything and print the
+                                   command (interactive terminals are asked
+                                   y/N instead)
 `;
 
 /**
@@ -135,6 +150,7 @@ interface QuarantineOptions {
   readonly fingerprint?: string;
   readonly confirmedNoConcurrentStart: boolean;
   readonly forceAmbiguous: boolean;
+  readonly quarantineStale?: true;
 }
 
 type CliCommand =
@@ -161,12 +177,14 @@ type CliCommand =
       readonly kind: "recover";
       readonly sessionId: SessionId;
       readonly quarantine: QuarantineOptions;
+      readonly confirmExecute: boolean;
     }>
   | Readonly<{
       readonly kind: "reconcile";
       readonly sessionId: SessionId;
       readonly evidencePath: string;
       readonly quarantine: QuarantineOptions;
+      readonly confirmExecute: boolean;
     }>;
 
 async function promptFromStdin(): Promise<string> {
@@ -253,11 +271,14 @@ function parseRecoveryArguments(
 ): Readonly<{
   readonly positional: readonly string[];
   readonly quarantine: QuarantineOptions;
+  readonly confirmExecute: boolean;
 }> {
   const positional: string[] = [];
   let fingerprint: string | undefined;
   let confirmedNoConcurrentStart = false;
   let forceAmbiguous = false;
+  let quarantineStale = false;
+  let confirmExecute = false;
   for (let index = 1; index < arguments_.length; index += 1) {
     const value = arguments_[index];
     if (value === "--quarantine-fingerprint") {
@@ -277,6 +298,12 @@ function parseRecoveryArguments(
     } else if (value === "--force-ambiguous") {
       if (forceAmbiguous) throw new CliInputError();
       forceAmbiguous = true;
+    } else if (value === "--quarantine-stale") {
+      if (quarantineStale) throw new CliInputError();
+      quarantineStale = true;
+    } else if (value === "--confirm-execute") {
+      if (confirmExecute) throw new CliInputError();
+      confirmExecute = true;
     } else if (value?.startsWith("--") === true) {
       throw new CliInputError();
     } else if (value !== undefined) {
@@ -286,7 +313,11 @@ function parseRecoveryArguments(
   if (
     positional.length !== positionalCount ||
     (fingerprint === undefined) !== !confirmedNoConcurrentStart ||
-    (forceAmbiguous && fingerprint === undefined)
+    (forceAmbiguous && fingerprint === undefined) ||
+    (quarantineStale &&
+      (fingerprint !== undefined ||
+        confirmedNoConcurrentStart ||
+        forceAmbiguous))
   ) {
     throw new CliInputError();
   }
@@ -296,7 +327,9 @@ function parseRecoveryArguments(
       ...(fingerprint === undefined ? {} : { fingerprint }),
       confirmedNoConcurrentStart,
       forceAmbiguous,
+      ...(quarantineStale ? { quarantineStale: true as const } : {}),
     }),
+    confirmExecute,
   });
 }
 
@@ -372,6 +405,7 @@ async function parseCommand(arguments_: readonly string[]): Promise<CliCommand> 
         kind: "recover",
         sessionId: parseSessionId(parsed.positional[0]),
         quarantine: parsed.quarantine,
+        confirmExecute: parsed.confirmExecute,
       });
     }
     case "reconcile": {
@@ -385,6 +419,7 @@ async function parseCommand(arguments_: readonly string[]): Promise<CliCommand> 
         sessionId: parseSessionId(parsed.positional[0]),
         evidencePath,
         quarantine: parsed.quarantine,
+        confirmExecute: parsed.confirmExecute,
       });
     }
     default:
@@ -426,6 +461,12 @@ function classifyFailure(error: unknown): CliFailure {
     return Object.freeze({
       message: `flashcoder: reconciliation_${error.code}\n`,
       exitCode: 2,
+    });
+  }
+  if (error instanceof RecoveryExecutionDeniedError) {
+    return Object.freeze({
+      message: "flashcoder: recovery_execution_denied\n",
+      exitCode: 5,
     });
   }
   if (error instanceof JournalError) {
@@ -535,24 +576,214 @@ function writeResult(renderer: CliRenderer | undefined, content: string): void {
   process.stdout.write(content);
 }
 
+/**
+ * Preflight the writer lease before `recover`/`reconcile` opens the journal.
+ *
+ * Three modes, all fail-closed:
+ *  - `--quarantine-fingerprint <fp> [--force-ambiguous]` (with
+ *    `--confirm-no-concurrent-start`): quarantine exactly the inspected lease.
+ *  - `--quarantine-stale`: quarantine only a lease proven dead on this host
+ *    (owner pid no longer exists), then proceed.
+ *  - neither: leave the lease alone. If one exists, the recovery kernel would
+ *    refuse with a bare `journal_lease_held`; print the fingerprint and the
+ *    exact takeover commands instead, and stop.
+ *
+ * Returns true when the caller may proceed into the recovery kernel, false
+ * when a decision was already printed and the command must stop.
+ */
 async function quarantineIfRequested(
   workspaceRoot: string,
   sessionId: SessionId,
   options: QuarantineOptions,
-): Promise<void> {
-  if (options.fingerprint === undefined) return;
+): Promise<boolean> {
+  if (
+    options.fingerprint === undefined &&
+    options.quarantineStale !== true
+  ) {
+    return heldLeaseGuidanceIfAny(workspaceRoot, sessionId);
+  }
   const paths = createSessionPaths(workspaceRoot, sessionId);
   const inspection = await inspectWriterLease(paths);
-  if (inspection.fingerprint !== options.fingerprint) {
-    throw new CliInputError();
+  if (options.fingerprint !== undefined) {
+    if (inspection.fingerprint !== options.fingerprint) {
+      throw new CliInputError();
+    }
+    const quarantined = await quarantineWriterLease(paths, inspection, {
+      confirmedNoConcurrentStart: true,
+      ...(options.forceAmbiguous ? { forceAmbiguous: true } : {}),
+    });
+    process.stderr.write(
+      `flashcoder: writer_lease_quarantined=${quarantined.inspectionFingerprint}\n`,
+    );
+    return true;
+  }
+  if (inspection.state === "absent") return true;
+  if (inspection.state === "live") {
+    process.stderr.write(
+      `flashcoder: writer lease is live: pid ${inspection.owner.pid} is still running on this host; stop that flashcoder process instead of quarantining\n`,
+    );
+    process.exitCode = 5;
+    return false;
+  }
+  if (inspection.state === "ambiguous") {
+    process.stderr.write(
+      "flashcoder: writer lease is ambiguous, not proven dead on this host; --quarantine-stale cannot remove it (use --quarantine-fingerprint with --force-ambiguous to override)\n",
+    );
+    process.exitCode = 5;
+    return false;
   }
   const quarantined = await quarantineWriterLease(paths, inspection, {
     confirmedNoConcurrentStart: true,
-    ...(options.forceAmbiguous ? { forceAmbiguous: true } : {}),
   });
   process.stderr.write(
     `flashcoder: writer_lease_quarantined=${quarantined.inspectionFingerprint}\n`,
   );
+  return true;
+}
+
+/**
+ * When a recovery command finds a writer lease without any quarantine intent,
+ * explain the refusal and print the exact takeover commands. The lease itself
+ * is never touched here: the user must pass quarantine options to remove it.
+ */
+async function heldLeaseGuidanceIfAny(
+  workspaceRoot: string,
+  sessionId: SessionId,
+): Promise<boolean> {
+  const paths = createSessionPaths(workspaceRoot, sessionId);
+  let inspection;
+  try {
+    inspection = await inspectWriterLease(paths);
+  } catch {
+    return true;
+  }
+  if (inspection.state === "absent") return true;
+  if (inspection.state === "live") {
+    process.stderr.write(
+      `flashcoder: journal_lease_live: another flashcoder process (pid ${inspection.owner.pid}) is currently writing this session\n`,
+    );
+    process.exitCode = 5;
+    return false;
+  }
+  const leaseLine =
+    inspection.state === "stale-proven-dead"
+      ? `the writer lease for ${sessionId} is held by pid ${inspection.owner.pid} (acquired ${inspection.owner.acquiredAt}); the owner process is not running on this host,`
+      : `the writer lease for ${sessionId} cannot be verified as dead on this host;`;
+  const overrideLine =
+    inspection.state === "ambiguous"
+      ? " (add --force-ambiguous if you are certain no other process is writing)"
+      : "";
+  process.stderr.write(
+    `flashcoder: journal_lease_held\n` +
+      `flashcoder:   ${leaseLine}\n` +
+      `flashcoder:   but on a shared filesystem the owner may still be alive on another machine\n` +
+      `flashcoder:   quarantine the lease and retry, only if you are certain no other process is writing this session:\n` +
+      `flashcoder:     flashcoder recover ${sessionId} --quarantine-fingerprint ${inspection.fingerprint} --confirm-no-concurrent-start${overrideLine}\n` +
+      `flashcoder:   or, when the owner process died on this host:\n` +
+      `flashcoder:     flashcoder recover ${sessionId} --quarantine-stale\n`,
+  );
+  process.exitCode = 5;
+  return false;
+}
+
+/**
+ * Session Journal is workspace-scoped. When the id does not exist in the
+ * current workspace's storage directory, report the operator-visible
+ * "no such session" error (like `continue` does) instead of letting the
+ * kernel surface `incomplete_bootstrap` or `unsafe_path` internals.
+ */
+async function assertSessionInWorkspace(
+  workspaceRoot: string,
+  sessionId: SessionId,
+): Promise<void> {
+  const paths = createSessionPaths(workspaceRoot, sessionId);
+  let stats;
+  try {
+    stats = await stat(paths.logPath);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      process.stderr.write(
+        `flashcoder: no such session in this workspace (searched ${paths.storageDir})\n` +
+          "flashcoder: run flashcoder from the workspace that owns this session\n",
+      );
+      throw new CliInputError();
+    }
+    throw error;
+  }
+  if (!stats.isFile() || stats.size < 1) {
+    process.stderr.write(
+      `flashcoder: no such session in this workspace (searched ${paths.storageDir})\n`,
+    );
+    throw new CliInputError();
+  }
+}
+
+/**
+ * The operator gate the recovery kernel calls right before it executes a
+ * pending tool call. Interactive terminals are asked y/N; non-interactive
+ * invocations require the explicit `--confirm-execute` flag. Declining prints
+ * the command and stops the recovery fail-closed: nothing executes, no result
+ * is fabricated, and the already-durable reconciliation facts stay honest.
+ */
+function buildRecoveryExecuteConfirmation(
+  confirmExecute: boolean,
+): (candidate: RecoveryExecuteCandidate) => Promise<boolean> {
+  return async (candidate) => {
+    const commandLine =
+      candidate.name === "bash"
+        ? bashCommandFromArguments(candidate.argumentsText)
+        : candidate.argumentsText;
+    process.stderr.write(
+      `flashcoder: recovery will execute the pending tool call:\n` +
+        `flashcoder:   ${candidate.name}: ${commandLine}\n`,
+    );
+    if (process.stdin.isTTY === true && process.stderr.isTTY === true) {
+      const prompt = createInterface({
+        input: process.stdin,
+        output: process.stderr,
+      });
+      try {
+        const answer = (
+          await prompt.question(
+            "flashcoder: execute this tool call? [y/N] ",
+          )
+        )
+          .trim()
+          .toLowerCase();
+        return answer === "y" || answer === "yes";
+      } finally {
+        prompt.close();
+      }
+    }
+    if (confirmExecute) return true;
+    process.stderr.write(
+      "flashcoder: recovery_execution_requires_confirmation: re-run with --confirm-execute to allow the recovery to execute tool calls\n",
+    );
+    return false;
+  };
+}
+
+/** The `command` field out of a bash tool call's JSON arguments, when parseable. */
+function bashCommandFromArguments(argumentsText: string): string {
+  try {
+    const parsed: unknown = JSON.parse(argumentsText);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "command" in parsed &&
+      typeof parsed["command"] === "string"
+    ) {
+      return parsed["command"];
+    }
+  } catch {
+    // fall through to the raw text
+  }
+  return argumentsText;
 }
 
 async function readEvidenceFile(path: string): Promise<FrozenBytes> {
@@ -732,6 +963,7 @@ async function main(): Promise<void> {
     const command = await parseCommand(arguments_);
     const workspaceRoot = process.cwd();
     if (command.kind === "inspect") {
+      await assertSessionInWorkspace(workspaceRoot, command.sessionId);
       await inspectSession(workspaceRoot, command.sessionId);
       return;
     }
@@ -872,12 +1104,17 @@ async function main(): Promise<void> {
       }
       return;
     }
-    await quarantineIfRequested(
+    await assertSessionInWorkspace(workspaceRoot, command.sessionId);
+    const mayProceed = await quarantineIfRequested(
       workspaceRoot,
       command.sessionId,
       command.quarantine,
     );
+    if (!mayProceed) return;
     renderer = new CliRenderer();
+    const confirmExecute = buildRecoveryExecuteConfirmation(
+      command.confirmExecute,
+    );
     const common = {
       workspaceRoot,
       sessionId: command.sessionId,
@@ -885,6 +1122,7 @@ async function main(): Promise<void> {
       onPreview: renderer.preview,
       onStatus: renderer.status,
       loadCredential: () => loadDeepSeekCredential({ projectRoot: workspaceRoot }),
+      confirmExecute,
     } as const;
     const result =
       command.kind === "recover"

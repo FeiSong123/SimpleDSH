@@ -941,6 +941,7 @@ function normalizePayload(type: JournalEventType, input: unknown): unknown {
       const resolution = enumValue(value["resolution"], [
         "completed",
         "proven_not_executed",
+        "not_executed_denied",
       ] as const);
       if (resolution === "completed") {
         exactKeys(value, [

@@ -19,8 +19,17 @@ dist/
 # code and notes share one directory tree. It has its own .git; this one
 # must never see inside it.
 internal/
+dev/
+plans/
 AGENTS.md
 PLANS.md
 
 # Release artifacts
 release/
+
+# Local agent/editor state, not part of the source
+.ipython/
+.local/
+.prime/
+Library/
+package-lock.json

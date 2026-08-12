@@ -63,6 +63,16 @@ Quarantine options (recover/reconcile only):
        --quarantine-fingerprint <sha256:...>
        --confirm-no-concurrent-start
        [--force-ambiguous]
+       --quarantine-stale          remove a writer lease proven dead on this
+                                   host, then proceed (mutually exclusive with
+                                   the fingerprint options)
+
+Recovery execution (recover/reconcile only):
+       --confirm-execute           allow the recovery to execute a pending tool
+                                   call. Without it, recover/reconcile refuse
+                                   before executing anything and print the
+                                   command (interactive terminals are asked
+                                   y/N instead)
 `,
   );
   assert.equal(result.stderr, "");

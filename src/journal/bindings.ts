@@ -169,7 +169,8 @@ interface EffectBinding extends RunScopedBinding {
     | "completed"
     | "indeterminate"
     | "reconciled_completed"
-    | "reconciled_not_executed";
+    | "reconciled_not_executed"
+    | "reconciled_denied";
   readonly outputArtifactId: string | undefined;
   readonly terminalEventId: string | undefined;
 }
@@ -2130,7 +2131,9 @@ async function applyEvent(
           status:
             event.payload.resolution === "completed"
               ? "reconciled_completed"
-              : "reconciled_not_executed",
+              : event.payload.resolution === "proven_not_executed"
+                ? "reconciled_not_executed"
+                : "reconciled_denied",
           outputArtifactId:
             event.payload.resolution === "completed"
               ? event.payload.outputArtifactId
@@ -2261,7 +2264,8 @@ async function applyEvent(
           activeEffectId === undefined ? undefined : state.effects.get(activeEffectId);
         if (
           activeEffect !== undefined &&
-          activeEffect.status !== "reconciled_not_executed"
+          activeEffect.status !== "reconciled_not_executed" &&
+          activeEffect.status !== "reconciled_denied"
         ) {
           referenceFailure();
         }
@@ -2288,21 +2292,42 @@ async function applyEvent(
             status: "invalid",
             code: toolCall.validationCode,
           });
+        } else if (
+          source.type === "effect_reconciled" &&
+          activeEffect !== undefined &&
+          activeEffect.status === "reconciled_denied" &&
+          activeEffect.toolCallId === event.payload.toolCallId &&
+          (source.event.payload as JournalPayloadByType["effect_reconciled"])
+            .effectId === activeEffectId &&
+          (source.event.payload as JournalPayloadByType["effect_reconciled"])
+            .resolution === "not_executed_denied"
+        ) {
+          staticContent = Object.freeze({
+            kind: "static",
+            status: "denied",
+            code: "permission_denied",
+          });
         } else {
           referenceFailure();
         }
       }
       // Search usage is durable only on a successful web_search observation;
       // every other tool and every failed search must leave it absent.
+      // Absence on a successful web_search result is tolerated: journals
+      // written before the search-cost feature never recorded it, and this
+      // binding must stay able to replay them (the cost projection already
+      // skips absent usage).
       const searchUsagePresent =
         event.payload.searchUsage !== undefined &&
         event.payload.searchUsage !== null;
-      const searchUsageExpected =
-        toolCall.name === "web_search" &&
-        resultTerminal !== undefined &&
-        resultTerminal.code === "ok";
-      if (searchUsagePresent !== searchUsageExpected) {
-        referenceFailure();
+      if (searchUsagePresent) {
+        const searchUsageExpected =
+          toolCall.name === "web_search" &&
+          resultTerminal !== undefined &&
+          resultTerminal.code === "ok";
+        if (!searchUsageExpected) {
+          referenceFailure();
+        }
       }
       const bytes = await applyBlob(state, event.lineageId, event.payload, verifier);
       try {

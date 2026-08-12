@@ -52,7 +52,8 @@ type EffectState =
   | "completed"
   | "indeterminate"
   | "reconciled_completed"
-  | "reconciled_proven_not_executed";
+  | "reconciled_proven_not_executed"
+  | "reconciled_denied";
 
 interface MutableUsage {
   promptTokens: bigint;
@@ -190,6 +191,7 @@ export interface CostReportV1 {
       readonly indeterminate: string;
       readonly reconciledCompleted: string;
       readonly reconciledProvenNotExecuted: string;
+      readonly reconciledDenied: string;
       readonly indeterminateObserved: string;
     }>;
     readonly unpricedAttempts: Readonly<{
@@ -389,6 +391,7 @@ function finalEffectCounts(
   let indeterminate = 0n;
   let reconciledCompleted = 0n;
   let reconciledProvenNotExecuted = 0n;
+  let reconciledDenied = 0n;
   for (const state of effects.values()) {
     switch (state) {
       case "prepared":
@@ -406,6 +409,9 @@ function finalEffectCounts(
       case "reconciled_proven_not_executed":
         reconciledProvenNotExecuted += 1n;
         break;
+      case "reconciled_denied":
+        reconciledDenied += 1n;
+        break;
     }
   }
   return Object.freeze({
@@ -414,6 +420,7 @@ function finalEffectCounts(
     indeterminate: indeterminate.toString(),
     reconciledCompleted: reconciledCompleted.toString(),
     reconciledProvenNotExecuted: reconciledProvenNotExecuted.toString(),
+    reconciledDenied: reconciledDenied.toString(),
     indeterminateObserved: indeterminateObserved.toString(),
   });
 }
@@ -678,7 +685,9 @@ export function projectSessionCostV1(
           event.payload.effectId,
           event.payload.resolution === "completed"
             ? "reconciled_completed"
-            : "reconciled_proven_not_executed",
+            : event.payload.resolution === "proven_not_executed"
+              ? "reconciled_proven_not_executed"
+              : "reconciled_denied",
         );
         break;
       default:

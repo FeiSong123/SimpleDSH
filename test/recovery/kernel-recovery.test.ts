@@ -27,6 +27,7 @@ import {
   SessionInterruptedError,
   SessionKernelError,
 } from "../../src/session/index.js";
+import { RecoveryExecutionDeniedError } from "../../src/session/recovery-runtime.js";
 
 const FIXED_AT = "2026-08-05T08:00:00.000Z" as CanonicalTimestamp;
 const fixedClock = Object.freeze({ now: () => FIXED_AT });
@@ -274,6 +275,23 @@ test("crash before first attempt aliases the exact durable Snapshot in one recov
 });
 
 test("legacy v4/v1 recovery preserves its edit ABI and exact verbose completed result", async (t) => {
+  // The fixture is archived out of this repository's own history at the frozen
+  // v4 revision. This repo's history was rebuilt at some point and no longer
+  // contains that object, and origin does not serve it either — the fixture
+  // cannot be reconstructed here. Keep the test so a full-history clone or CI
+  // still exercises the durable-format invariant; skip with a visible reason
+  // instead of failing on an environment we cannot repair.
+  const probe = spawnSync(
+    "git",
+    ["cat-file", "-t", LEGACY_V4_REVISION],
+    { cwd: REPO_ROOT, encoding: "utf8" },
+  );
+  if (probe.status !== 0) {
+    t.skip(
+      `legacy v4 fixture revision ${LEGACY_V4_REVISION} is not in this repository's history`,
+    );
+    return;
+  }
   const root = await workspace(t, "legacy-v4-profile");
   const id = sessionId("e");
   const completedGapId = sessionId("f");
@@ -1136,3 +1154,87 @@ for (const targetAppend of [14, 15, 16, 17] as const) {
     assert.equal(events.filter((event) => event.type === "run_interrupted").length, 0);
   });
 }
+
+test("recovery continuation tool calls pass the operator confirm gate and stop fail-closed when denied", async (t) => {
+  const root = await workspace(t, "continuation-gate");
+  const id = sessionId("7");
+  const writePath = join(root, "pending-write.txt");
+  const markerPath = join(root, "continuation-marker.txt");
+  const write = toolCall("call_pending_write_2", "write", {
+    path: writePath,
+    content: "ONE_RECOVERY_EFFECT\n",
+  });
+  const bash = toolCall("call_continuation_bash", "bash", {
+    command: `printf CONT_RUN >> ${JSON.stringify(markerPath)}`,
+  });
+  let appends = 0;
+  await assert.rejects(
+    runSessionFixture({
+      workspaceRoot: root,
+      sessionId: id,
+      userInput: "Resume after the durable tool Checkpoint.",
+      turns: [success(response({ content: "", requestId: "pending-1", toolCalls: [write] }))],
+      clock: fixedClock,
+      eventIds: eventIds("7"),
+      persistenceControls: {
+        fault: (point) => {
+          if (point !== "append.after_sync_before_ack") return;
+          appends += 1;
+          if (appends === 15) throw new Error("checkpoint acknowledgement crash");
+        },
+      },
+    }),
+    (error: unknown) =>
+      error instanceof SessionKernelError && error.code === "durability_failure",
+  );
+
+  // The pending write resolves (write is allowed); the continuation bash
+  // command is denied, so the recovery stops fail-closed without running it.
+  await assert.rejects(
+    recoverSessionFixture({
+      workspaceRoot: root,
+      sessionId: id,
+      turns: [
+        success(response({ content: "", requestId: "cont-1", toolCalls: [bash] })),
+        success(response({ content: "done", requestId: "cont-2" })),
+      ],
+      clock: fixedClock,
+      eventIds: eventIds("8"),
+      confirmExecute: async (candidate) =>
+        candidate.name !== "bash" ||
+        !candidate.argumentsText.includes("CONT_RUN"),
+    }),
+    (error: unknown) => error instanceof RecoveryExecutionDeniedError,
+  );
+  assert.equal(await readFile(writePath, "utf8"), "ONE_RECOVERY_EFFECT\n");
+  await assert.rejects(readFile(markerPath, "utf8"), { code: "ENOENT" });
+  const afterDeny = await replay(root, id, "9");
+  assert.equal(
+    afterDeny.filter(
+      (event) =>
+        event.type === "effect_prepared" &&
+        event.payload.toolCallId === "call_continuation_bash",
+    ).length,
+    0,
+  );
+
+  // A fresh recovery with the gate opened runs the continuation command once.
+  await recoverSessionFixture({
+    workspaceRoot: root,
+    sessionId: id,
+    turns: [success(response({ content: "done", requestId: "cont-3" }))],
+    clock: fixedClock,
+    eventIds: eventIds("a"),
+    confirmExecute: async () => true,
+  });
+  assert.equal(await readFile(markerPath, "utf8"), "CONT_RUN");
+  const afterAllow = await replay(root, id, "b");
+  assert.equal(
+    afterAllow.filter(
+      (event) =>
+        event.type === "effect_prepared" &&
+        event.payload.toolCallId === "call_continuation_bash",
+    ).length,
+    1,
+  );
+});

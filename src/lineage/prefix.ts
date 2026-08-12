@@ -136,7 +136,8 @@ type EffectStatus =
   | "completed"
   | "indeterminate"
   | "reconciled_completed"
-  | "reconciled_not_executed";
+  | "reconciled_not_executed"
+  | "reconciled_denied";
 
 interface EffectState {
   readonly id: EffectId;
@@ -1332,8 +1333,12 @@ export function selectLineagePrefixV1(
           effect.status = "reconciled_completed";
           effect.outputArtifactId = event.payload.outputArtifactId;
           effect.terminalEventId = event.id;
-        } else {
+        } else if (event.payload.resolution === "proven_not_executed") {
           effect.status = "reconciled_not_executed";
+          effect.outputArtifactId = undefined;
+          effect.terminalEventId = event.id;
+        } else {
+          effect.status = "reconciled_denied";
           effect.outputArtifactId = undefined;
           effect.terminalEventId = event.id;
         }
@@ -1434,7 +1439,8 @@ export function selectLineagePrefixV1(
             activeEffectId === undefined ? undefined : effects.get(activeEffectId);
           if (
             activeEffect !== undefined &&
-            activeEffect.status !== "reconciled_not_executed"
+            activeEffect.status !== "reconciled_not_executed" &&
+            activeEffect.status !== "reconciled_denied"
           ) {
             fail("tool result bypasses its active Effect");
           }
@@ -1445,6 +1451,18 @@ export function selectLineagePrefixV1(
             source.payload.finalDecision === "deny" &&
             call.validationCode === undefined
           ) {
+            expectedStatic = Object.freeze({
+              kind: "static",
+              status: "denied",
+              code: "permission_denied",
+            });
+          } else if (
+            source?.type === "effect_reconciled" &&
+            source.payload.effectId === activeEffectId &&
+            source.payload.resolution === "not_executed_denied"
+          ) {
+            // The operator denied the recovery execution: the tool result is a
+            // synthetic static denial, not a bypass of the reconciled Effect.
             expectedStatic = Object.freeze({
               kind: "static",
               status: "denied",
