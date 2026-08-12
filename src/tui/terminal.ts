@@ -105,6 +105,7 @@ export interface Terminal {
 export class ProcessTerminal implements Terminal {
 	private wasRaw = false;
 	private inputHandler?: (data: string) => void;
+	private exitCleanup?: () => void;
 	private resizeHandler?: () => void;
 	private _kittyProtocolActive = false;
 	private _modifyOtherKeysActive = false;
@@ -165,6 +166,28 @@ export class ProcessTerminal implements Terminal {
 		if (process.env["TMUX"]) {
 			process.stdout.write("\x1b[?1002h\x1b[?1006h");
 		}
+
+		// Best-effort cleanup if the process dies without stop(): a crash or
+		// SIGTERM would otherwise leave the terminal in raw mode with mouse
+		// tracking and bracketed paste enabled. SIGKILL cannot be helped.
+		this.exitCleanup = (): void => {
+			try {
+				process.stdout.write("\x1b[?2004l");
+				if (process.env["TMUX"]) {
+					process.stdout.write("\x1b[?1002l\x1b[?1006l");
+				}
+				if (this.keyboardProtocolPushed || this._kittyProtocolActive) {
+					process.stdout.write("\x1b[<u");
+				}
+				this.disableModifyOtherKeys();
+				if (process.stdin.setRawMode) {
+					process.stdin.setRawMode(this.wasRaw);
+				}
+			} catch {
+				// Terminal may already be gone.
+			}
+		};
+		process.once("exit", this.exitCleanup);
 
 		// Set up resize handler immediately
 		process.stdout.on("resize", this.resizeHandler);
@@ -474,6 +497,11 @@ export class ProcessTerminal implements Terminal {
 		// Restore raw mode state
 		if (process.stdin.setRawMode) {
 			process.stdin.setRawMode(this.wasRaw);
+		}
+
+		if (this.exitCleanup !== undefined) {
+			process.removeListener("exit", this.exitCleanup);
+			this.exitCleanup = undefined;
 		}
 	}
 
