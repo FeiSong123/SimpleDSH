@@ -15,8 +15,10 @@ dist/
 .DS_Store
 
 # Internal design notes and plans, not part of the published source
-dev/
-plans/
+# The internal repository (Owen718/FlashCoder-dev), checked out here so
+# code and notes share one directory tree. It has its own .git; this one
+# must never see inside it.
+internal/
 AGENTS.md
 PLANS.md
 
