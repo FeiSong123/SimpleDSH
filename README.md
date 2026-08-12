@@ -36,7 +36,7 @@ machinery—does the work.
 Requires Node.js 22 or newer.
 
 ```sh
-curl -fsSL https://github.com/Owen718/FlashCoder/releases/download/v0.1.0-rc.5/flashcoder-0.1.0-rc.5.tgz -o flashcoder.tgz
+curl -fsSL https://github.com/Owen718/FlashCoder/releases/download/v0.1.0-rc.6/flashcoder-0.1.0-rc.6.tgz -o flashcoder.tgz
 npm install -g ./flashcoder.tgz
 flashcoder login
 ```
