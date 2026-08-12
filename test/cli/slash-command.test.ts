@@ -9,7 +9,7 @@ const COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "clear", description: "empty the screen" },
   { name: "compact", description: "summarize the conversation" },
   { name: "session", description: "show the session id" },
-  { name: "exit", description: "leave simpledsh" },
+  { name: "exit", description: "leave flashcoder" },
 ]);
 const ALIASES = Object.freeze(["quit"] as const);
 

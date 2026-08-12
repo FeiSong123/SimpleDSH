@@ -54,7 +54,7 @@ function eventIds(sequence: number): EventIdentitySource {
 }
 
 async function workspace(t: TestContext, label: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), `simpledsh-partial-${label}-`));
+  const root = await mkdtemp(join(tmpdir(), `flashcoder-partial-${label}-`));
   t.after(async () => rm(root, { recursive: true, force: true }));
   return root;
 }

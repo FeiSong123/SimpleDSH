@@ -493,10 +493,10 @@ test(
     );
     const credential = loadDeepSeekCredential({ projectRoot: PROJECT_ROOT });
     const noToolWorkspace = await mkdtemp(
-      join(tmpdir(), "simpledsh-stage06-live-no-tool-"),
+      join(tmpdir(), "flashcoder-stage06-live-no-tool-"),
     );
     const readWorkspace = await mkdtemp(
-      join(tmpdir(), "simpledsh-stage06-live-read-"),
+      join(tmpdir(), "flashcoder-stage06-live-read-"),
     );
     context.after(async () => {
       await Promise.all([
@@ -627,7 +627,7 @@ test(
       .map((event) => event.payload.responseModel);
     context.diagnostic(
       JSON.stringify({
-        evidence: "simpledsh-stage06-live-protocol-redacted-v1",
+        evidence: "flashcoder-stage06-live-protocol-redacted-v1",
         sessions: [
           {
             kind: "no_tool",

@@ -62,7 +62,7 @@ const preflight = {
 };
 
 test("journal append serializes short writes and acknowledges only after fsync", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-writer-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-writer-"));
   const path = join(directory, "log.jsonl");
   const handle = await open(path, "ax+", 0o600);
   const points: string[] = [];
@@ -113,7 +113,7 @@ test("journal append serializes short writes and acknowledges only after fsync",
 });
 
 test("journal append failure poisons the writer and permits no later append", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-poison-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-poison-"));
   const path = join(directory, "log.jsonl");
   const handle = await open(path, "ax+", 0o600);
   let inject = true;
@@ -150,7 +150,7 @@ test("journal append failure poisons the writer and permits no later append", as
 });
 
 test("acknowledged event view does not advance across after-sync ambiguity", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-ack-view-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-ack-view-"));
   const path = join(directory, "log.jsonl");
   const handle = await open(path, "ax+", 0o600);
   const writer = new JournalWriter({
@@ -181,7 +181,7 @@ test("acknowledged event view does not advance across after-sync ambiguity", asy
 });
 
 test("journal append preflights identity and references before any bytes", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-preflight-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-preflight-"));
   const path = join(directory, "log.jsonl");
   const handle = await open(path, "ax+", 0o600);
   const projection = new JournalBindingProjection({
@@ -230,7 +230,7 @@ test("journal append preflights identity and references before any bytes", async
 });
 
 test("journal close drains accepted appends and rejects later work", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-close-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-close-"));
   const path = join(directory, "log.jsonl");
   const handle = await open(path, "ax+", 0o600);
   const writer = new JournalWriter({
@@ -259,7 +259,7 @@ test("journal close drains accepted appends and rejects later work", async () =>
 });
 
 test("journal record durable before acknowledgement is recovered as the committed fact", async (t) => {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-ack-crash-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-ack-crash-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
   const sid = sessionId();
   const initial = await openJournal(workspace, sid, fixedClock(), eventIds());

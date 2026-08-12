@@ -99,7 +99,7 @@ if (
     const runtime = new ToolRuntime({
       durability,
       cwd: workspaceRoot,
-      storageRoot: opened.paths.dshDir,
+      storageRoot: opened.paths.storageDir,
       canonicalEnvPath: join(repositoryRoot, ".env"),
       umask: 0o022,
       toolsProfile: "edit-v5",

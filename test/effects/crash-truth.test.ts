@@ -58,7 +58,7 @@ const EVIDENCE_ID = `art_${"a".repeat(32)}` as ArtifactId;
 const TIMESTAMP = "2026-08-04T05:00:00.000Z" as CanonicalTimestamp;
 const REPOSITORY_ROOT = resolve(process.cwd());
 const TARGET_NAME = "crash-target.txt";
-const TEMP_NAME = `.dsh-tmp-${"f".repeat(32)}`;
+const TEMP_NAME = `.flashcoder-tmp-${"f".repeat(32)}`;
 
 type CrashMode =
   | "before_prepared"
@@ -113,7 +113,7 @@ async function seedWorkspace(
   t: TestContext,
   initialTarget?: string,
 ): Promise<SeededWorkspace> {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-crash-truth-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-crash-truth-"));
   const targetPath = join(workspace, TARGET_NAME);
   if (initialTarget !== undefined) await writeFile(targetPath, initialTarget);
   const opened = await openJournal(

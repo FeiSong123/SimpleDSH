@@ -116,7 +116,7 @@ export async function createRuntimeFixture(
   calls: readonly ToolCall[],
   options: RuntimeFixtureOptions = {},
 ): Promise<RuntimeFixture> {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-runtime-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-runtime-"));
   const opened = await openJournal(
     workspace,
     RUNTIME_FIXTURE_SESSION_ID,
@@ -375,7 +375,7 @@ export async function createRuntimeFixture(
   const runtime = new ToolRuntime({
     durability,
     cwd: workspace,
-    storageRoot: opened.paths.dshDir,
+    storageRoot: opened.paths.storageDir,
     canonicalEnvPath: join(REPO_ROOT, ".env"),
     umask: 0o022,
     toolsProfile: options.toolsProfile ?? toolSchemaProfileForBytes(cacheAbi.toolsBlob),

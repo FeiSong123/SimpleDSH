@@ -16,7 +16,7 @@ import { createSnapshotStore } from "../../src/snapshot/store.js";
 import type { Sha256 } from "../../src/journal/types.js";
 
 async function sessionDirectory(t: TestContext): Promise<string> {
-  const path = await mkdtemp(join(tmpdir(), "simpledsh-blob-"));
+  const path = await mkdtemp(join(tmpdir(), "flashcoder-blob-"));
   await chmod(path, 0o700);
   t.after(async () => rm(path, { recursive: true, force: true }));
   return path;

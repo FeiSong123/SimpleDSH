@@ -26,7 +26,7 @@ import {
 const fixtureKey = "sk-fixture-never-real-02";
 
 function temporaryProject(): string {
-  return mkdtempSync(join(tmpdir(), "simpledsh-credential-"));
+  return mkdtempSync(join(tmpdir(), "flashcoder-credential-"));
 }
 
 function ignoredProject(): string {

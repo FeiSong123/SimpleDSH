@@ -771,7 +771,7 @@ test("legacy v4 missing replace_all remains a fieldless invalid result across re
     ["cache_checkpoint_created", "tool_result_committed"],
   );
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-legacy-edit-v4-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-legacy-edit-v4-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   const replayed = await replayEvents(
     join(directory, "legacy-edit.jsonl"),
@@ -1055,7 +1055,7 @@ test("Run admission and interruption terminal are single-owner and replay exact"
   const invalidParallel = setup.harness.make(parallelDraft);
   await setup.harness.reject(parallelDraft);
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-run-admission-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-run-admission-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   await assert.rejects(
     replayEvents(
@@ -1231,7 +1231,7 @@ test("pre-semantic retry is exact and post-semantic interruption must terminaliz
     },
   });
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-run-retry-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-run-retry-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   await assert.rejects(
     replayEvents(
@@ -1488,7 +1488,7 @@ test("final no-tool assistant closes checkpoint, Boundary, and Run contiguously"
     payload: { cause: "recovery", previousRunId: RUN_ID },
   });
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-run-completion-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-run-completion-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   const replayed = await replayEvents(
     join(directory, "complete-run.jsonl"),
@@ -1557,7 +1557,7 @@ test("source-phase terminal matrix survives append and close/reopen replay", asy
       ...(code === "output_limit" ? { hardLimitReached: true } : {}),
     })),
   ];
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-terminal-matrix-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-terminal-matrix-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
 
   for (const [index, item] of legalCases.entries()) {
@@ -1624,7 +1624,7 @@ test("active edit match count rejects result disagreement and CAS tampering", as
     }),
   );
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-edit-count-tamper-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-edit-count-tamper-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   const intact = await replayEvents(
     join(directory, "intact.jsonl"),
@@ -1832,7 +1832,7 @@ test("source-phase terminal violations fail append and hash-valid replay", async
     },
   ];
   const directory = await mkdtemp(
-    join(tmpdir(), "simpledsh-terminal-rejections-"),
+    join(tmpdir(), "flashcoder-terminal-rejections-"),
   );
   t.after(async () => rm(directory, { recursive: true, force: true }));
 
@@ -2166,7 +2166,7 @@ test("complete tool tail creates its same-Run Boundary before interruption", asy
     payload: { cause: "recovery", previousRunId: RUN_ID },
   });
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-boundary-first-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-boundary-first-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   await assert.rejects(
     replayEvents(
@@ -2252,7 +2252,7 @@ test("tool Boundary cites one ordered batch completed across recovery Runs", asy
     payload: { reason: "cancelled", sourceEventId: boundary.id },
   });
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-cross-run-batch-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-cross-run-batch-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   const replayed = await replayEvents(
     join(directory, "complete.jsonl"),
@@ -2452,7 +2452,7 @@ test("append and replay reject new work while a tool Effect is unsettled", async
     },
   });
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-stage04-closure-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-stage04-closure-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   const path = join(directory, "journal.jsonl");
   const journal = [...setup.harness.events.slice(0, invalidUser.seq - 1), invalidUser]
@@ -2794,7 +2794,7 @@ test("a pre-Snapshot recovery crash still gets fresh projection then a second cr
   assert.equal(alias.payload.bodyRef, fresh.payload.bodyRef);
   assert.equal(alias.payload.byteCount, fresh.payload.byteCount);
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-fresh-recovery-snapshot-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-fresh-recovery-snapshot-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   const replayed = await replayEvents(
     join(directory, "fresh-recovery.jsonl"),
@@ -2869,7 +2869,7 @@ test("recovery rejects a stale Snapshot alias after a newer durable tool Boundar
   };
   const staleEvent = harness.make(staleDraft);
   await harness.reject(staleDraft);
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-stale-snapshot-alias-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-stale-snapshot-alias-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   await assert.rejects(
     replayEvents(
@@ -3061,7 +3061,7 @@ test("snapshot identity and recovery alias are schema- and binding-exact", async
     sourceId,
   );
 
-  const directory = await mkdtemp(join(tmpdir(), "simpledsh-stage04-bindings-"));
+  const directory = await mkdtemp(join(tmpdir(), "flashcoder-stage04-bindings-"));
   t.after(async () => rm(directory, { recursive: true, force: true }));
   const path = join(directory, "journal.jsonl");
   const journal =

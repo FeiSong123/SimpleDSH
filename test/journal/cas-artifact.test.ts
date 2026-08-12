@@ -44,7 +44,7 @@ const encoder = new TextEncoder();
 const TOOL_CALL_ID = asToolCallId("call-artifact-store");
 
 async function sessionFixture(t: TestContext): Promise<string> {
-  const sessionDir = await mkdtemp(join(tmpdir(), "simpledsh-artifact-"));
+  const sessionDir = await mkdtemp(join(tmpdir(), "flashcoder-artifact-"));
   await chmod(sessionDir, 0o700);
   t.after(async () => {
     await rm(sessionDir, { recursive: true, force: true });

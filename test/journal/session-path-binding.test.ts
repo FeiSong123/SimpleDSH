@@ -32,7 +32,7 @@ function eventIds(fill: string) {
 }
 
 test("fresh Session A rejects Session B bootstrap before writing bytes", async (t) => {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-session-bind-fresh-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-session-bind-fresh-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
 
   const opened = await openJournal(
@@ -63,7 +63,7 @@ test("fresh Session A rejects Session B bootstrap before writing bytes", async (
 });
 
 test("Session B Journal moved under Session A is rejected without log mutation", async (t) => {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-session-bind-replay-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-session-bind-replay-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
 
   const source = await openJournal(
@@ -91,7 +91,7 @@ test("Session B Journal moved under Session A is rejected without log mutation",
 });
 
 test("open replay view exposes no mutable projection capability", async (t) => {
-  const workspace = await mkdtemp(join(tmpdir(), "simpledsh-session-view-"));
+  const workspace = await mkdtemp(join(tmpdir(), "flashcoder-session-view-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
 
   const opened = await openJournal(

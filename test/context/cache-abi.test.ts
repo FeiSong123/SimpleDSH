@@ -34,10 +34,14 @@ import {
   PREVIOUS_BASE_SYSTEM_PROMPT,
   PREVIOUS_SYSTEM_MESSAGE_BYTES,
   PRIOR_BASE_SYSTEM_PROMPT,
+  RC1_BASE_SYSTEM_PROMPT,
+  RC2_BASE_SYSTEM_PROMPT,
   RESOLVE_BASE_SYSTEM_PROMPT,
   materializeLegacySystemMessage,
   materializePreviousSystemMessage,
   materializePriorSystemMessage,
+  materializeRc1SystemMessage,
+  materializeRc2SystemMessage,
   materializeResolveSystemMessage,
 } from "../../src/bytes/system.js";
 import { freezeBytes, type FrozenBytes } from "../../src/bytes/types.js";
@@ -135,7 +139,7 @@ test("protocol v2 changes only the closed protocol frame for new Sessions", () =
   // to be a signed act rather than a side effect.
   assert.equal(
     v2.cacheAbiId,
-    "sha256:8bb0647289cc9a1d5830511b9f61b4fda5928368f3cb1c14ad07461ba0e17f69",
+    "sha256:39669589633b50d7d48d7b08bacb652cc4b0cf193b4e79ed764c1639b7e7bcfe",
   );
   assert.equal(v2.projectorVersion, PROJECTOR_VERSION_V1);
   assert.equal(bytesEqual(v2.modelTupleBytes, v1.modelTupleBytes), true);
@@ -469,4 +473,28 @@ test("a Lineage opened under the retired one-paragraph prompt still loads", () =
   assert.doesNotThrow(() =>
     loadCacheAbi(withInstructions, idFor(withInstructions)),
   );
+});
+
+test("every released prompt still loads under the current one", () => {
+  // Every frozen prompt has to keep round-tripping forever: a session created
+  // by an older binary carries its system blob in the manifest, and losing the
+  // profile turns that session into "no such session".
+  for (const materialize of [
+    materializeRc1SystemMessage,
+    materializeRc2SystemMessage,
+  ]) {
+    const manifest = manifestForSystem(
+      materialize(),
+      CANONICAL_TOOLS_BYTES,
+      PROTOCOL_VERSION_V2,
+    );
+    assert.doesNotThrow(() => loadCacheAbi(manifest, idFor(manifest)));
+  }
+  // What each frozen profile exists for: rc.1 predates batched searches, rc.2
+  // is the last one that called the agent SimpleDSH.
+  assert.match(RC1_BASE_SYSTEM_PROMPT, /Independent reads issued/u);
+  assert.match(RC2_BASE_SYSTEM_PROMPT, /Independent reads and web_searches/u);
+  assert.match(RC2_BASE_SYSTEM_PROMPT, /You are SimpleDSH/u);
+  assert.match(BASE_SYSTEM_PROMPT, /You are FlashCoder/u);
+  assert.notEqual(RC2_BASE_SYSTEM_PROMPT, BASE_SYSTEM_PROMPT);
 });

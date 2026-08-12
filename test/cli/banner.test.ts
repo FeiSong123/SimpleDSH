@@ -7,7 +7,7 @@ import { visibleWidth } from "../../src/tui/index.js";
 const CONTEXT = {
   model: "deepseek-v4-flash",
   effort: "max",
-  directory: "~/Downloads/projects/SimpleDSH",
+  directory: "~/Downloads/projects/FlashCoder",
 } as const;
 
 test("the opening block is a closed box of one width", () => {
@@ -54,7 +54,7 @@ test("it says what this is and what the run is pointed at", () => {
   assert.ok(shown.includes(TAGLINE));
   for (const part of PHILOSOPHY.split(" · ")) assert.ok(shown.includes(part), part);
   assert.match(shown, /model\s+deepseek-v4-flash · effort max/u);
-  assert.match(shown, /directory\s+~\/Downloads\/projects\/SimpleDSH/u);
+  assert.match(shown, /directory\s+~\/Downloads\/projects\/FlashCoder/u);
 });
 
 test("a terminal too narrow for the art still gets the facts", () => {
@@ -63,7 +63,7 @@ test("a terminal too narrow for the art still gets the facts", () => {
   const lines = banner(46, CONTEXT);
   const shown = lines.join("\n");
   assert.ok(!shown.includes("|____/"), "the art should have been dropped");
-  assert.match(shown, /SimpleDSH/u);
+  assert.match(shown, /FlashCoder/u);
   assert.match(shown, /deepseek-v4-flash/u);
   const width = visibleWidth(lines[0] ?? "");
   assert.ok(width <= 46, `${String(width)} columns in a 46-column terminal`);

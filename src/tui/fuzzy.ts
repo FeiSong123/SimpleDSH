@@ -2,7 +2,7 @@
 //   https://github.com/earendil-works/pi @ 05bf9df65155e047e4ba8459eaee9735e29a2e53
 //   packages/tui/src/fuzzy.ts
 // Copyright (c) 2025 Mario Zechner. MIT License.
-// Adapted for SimpleDSH: .ts import specifiers changed to .js for NodeNext.
+// Adapted for FlashCoder: .ts import specifiers changed to .js for NodeNext.
 
 /**
  * Fuzzy matching utilities.

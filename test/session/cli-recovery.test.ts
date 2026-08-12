@@ -82,7 +82,7 @@ function eventIds(fill: string): EventIdentitySource {
 }
 
 async function workspace(t: TestContext, label: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), `simpledsh-cli-${label}-`));
+  const root = await mkdtemp(join(tmpdir(), `flashcoder-cli-${label}-`));
   t.after(async () => rm(root, { recursive: true, force: true }));
   return root;
 }
@@ -299,8 +299,8 @@ test("run prints the allocated Session id before CredentialLoader failure", asyn
   assert.equal(result.status, 3);
   assert.equal(result.stdout, "");
   const lines = result.stderr.split("\n");
-  assert.match(lines[0] ?? "", /^simpledsh: session_id=ses_[0-9a-f]{32}$/u);
-  assert.equal(lines[1], "simpledsh: credential_missing");
+  assert.match(lines[0] ?? "", /^flashcoder: session_id=ses_[0-9a-f]{32}$/u);
+  assert.equal(lines[1], "flashcoder: credential_missing");
   assert.equal(lines[2], "");
 });
 
@@ -415,7 +415,7 @@ test("recover refuses a stale writer lease until its exact inspected fingerprint
   const refused = runCli(["recover", id], root);
   assert.equal(refused.status, 5);
   assert.equal(refused.stdout, "");
-  assert.equal(refused.stderr, "simpledsh: journal_lease_held\n");
+  assert.equal(refused.stderr, "flashcoder: journal_lease_held\n");
   assert.deepEqual(await treeSnapshot(root), beforeRefusal);
 
   const recovered = runCli([
@@ -429,7 +429,7 @@ test("recover refuses a stale writer lease until its exact inspected fingerprint
   assert.equal(recovered.stdout, content);
   assert.equal(
     recovered.stderr,
-    `simpledsh: writer_lease_quarantined=${fingerprint}\n${COMPLETED_STATUS_LINE}`,
+    `flashcoder: writer_lease_quarantined=${fingerprint}\n${COMPLETED_STATUS_LINE}`,
   );
   await assert.rejects(lstat(paths.writerLockDir), { code: "ENOENT" });
   const sessionEntries = await readdir(paths.sessionDir);
@@ -489,7 +489,7 @@ test("reconcile preserves exact evidence bytes and reaches the durable Boundary 
   assert.equal(result.signal, null);
   assert.equal(result.status, 3);
   assert.equal(result.stdout, "");
-  assert.equal(result.stderr, `${COMPLETED_STATUS_LINE}simpledsh: credential_missing\n`);
+  assert.equal(result.stderr, `${COMPLETED_STATUS_LINE}flashcoder: credential_missing\n`);
   await assert.rejects(lstat(markerPath), { code: "ENOENT" });
 
   const after = await openJournalReadOnly(root, id);

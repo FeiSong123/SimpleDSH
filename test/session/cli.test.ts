@@ -30,19 +30,19 @@ test("CLI help is local, stable, and credential independent", () => {
   assert.equal(result.status, 0);
   assert.equal(
     result.stdout,
-    `Usage: simpledsh
-       simpledsh run [--effort low|high|max] [--verify <command>]
+    `Usage: flashcoder
+       flashcoder run [--effort low|high|max] [--verify <command>]
                [--protect <path>]... [--verify-timeout <sec>] <prompt...>
-       printf '<prompt>' | simpledsh run
-       simpledsh login
-       simpledsh logout
-       simpledsh sessions
-       simpledsh continue [session-id]
-       simpledsh inspect <session-id>
-       simpledsh recover <session-id> [quarantine options]
-       simpledsh reconcile <session-id> <evidence.json> [quarantine options]
+       printf '<prompt>' | flashcoder run
+       flashcoder login
+       flashcoder logout
+       flashcoder sessions
+       flashcoder continue [session-id]
+       flashcoder inspect <session-id>
+       flashcoder recover <session-id> [quarantine options]
+       flashcoder reconcile <session-id> <evidence.json> [quarantine options]
 
-With no arguments simpledsh starts an interactive multi-turn session.
+With no arguments flashcoder starts an interactive multi-turn session.
 
 Verification (run only). The check decides the exit code; its command is never
 shown to the model, only its output when it fails:
@@ -76,7 +76,7 @@ test("CLI rejects invalid input with a fixed exit and no stdout", () => {
   assert.equal(result.signal, null);
   assert.equal(result.status, 2);
   assert.equal(result.stdout, "");
-  assert.equal(result.stderr, "simpledsh: invalid_invocation\n");
+  assert.equal(result.stderr, "flashcoder: invalid_invocation\n");
 });
 
 test("interactive mode refuses to start without a terminal", () => {
@@ -90,12 +90,12 @@ test("interactive mode refuses to start without a terminal", () => {
   assert.equal(result.stdout, "");
   assert.equal(
     result.stderr,
-    "simpledsh: interactive mode needs a terminal; use simpledsh run <prompt> instead\nsimpledsh: invalid_invocation\n",
+    "flashcoder: interactive mode needs a terminal; use flashcoder run <prompt> instead\nflashcoder: invalid_invocation\n",
   );
 });
 
 test("CLI fails closed before a request when the credential is absent", () => {
-  const workspace = mkdtempSync(join(tmpdir(), "simpledsh-cli-missing-key-"));
+  const workspace = mkdtempSync(join(tmpdir(), "flashcoder-cli-missing-key-"));
   try {
     const result = runCli(["run", "offline prompt"], { cwd: workspace });
 
@@ -105,7 +105,7 @@ test("CLI fails closed before a request when the credential is absent", () => {
     assert.equal(result.stdout, "");
     assert.match(
       result.stderr,
-      /^simpledsh: session_id=ses_[0-9a-f]{32}\nsimpledsh: credential_missing\n$/u,
+      /^flashcoder: session_id=ses_[0-9a-f]{32}\nflashcoder: credential_missing\n$/u,
     );
   } finally {
     rmSync(workspace, { recursive: true, force: true });

@@ -68,7 +68,35 @@ import {
   ToolResultProjectionError,
 } from "../artifact/tool-result.js";
 
-export const READ_TOOL_PARALLELISM = 12;
+/**
+ * How many observations may be in flight at once.
+ *
+ * Execution concurrency only: it does not enter the Cache ABI and does not
+ * change the order results are committed in.
+ */
+export const OBSERVATION_PARALLELISM = 12;
+
+/**
+ * Tools that only look at the world, and so can run beside each other.
+ *
+ * `read` touches the filesystem read-only and `web_search` asks the provider a
+ * question; neither publishes an Effect, and neither can observe the other. A
+ * tool is in this set by the name the schema proved, never by what its
+ * arguments appear to do — a `bash` command that reads like `ls` is still an
+ * effect.
+ */
+const OBSERVATIONS: ReadonlySet<ToolName> = new Set<ToolName>([
+  "read",
+  "web_search",
+]);
+
+function isObservation(
+  entry: Readonly<{ validation: ToolCallValidation }>,
+): boolean {
+  return (
+    entry.validation.ok && OBSERVATIONS.has(entry.validation.arguments.name)
+  );
+}
 
 interface PendingToolResult {
   readonly toolCallId: ToolCallId;
@@ -174,12 +202,12 @@ export function childEnvironment(home: string): BashChildEnvironment {
   const pathEntries = [...new Set([nodeBin, ...BASE_CHILD_PATH])];
   return Object.freeze({
     HOME: resolve(home),
-    HOSTNAME: "simpledsh",
+    HOSTNAME: "flashcoder",
     LANG: "C",
     LC_ALL: "C",
-    LOGNAME: "dsh",
+    LOGNAME: "flashcoder",
     PATH: pathEntries.join(delimiter),
-    USER: "dsh",
+    USER: "flashcoder",
   });
 }
 
@@ -320,7 +348,6 @@ export class ToolRuntime {
     }));
     const committed: CommittedToolResult[] = [];
     let index = 0;
-    let t2Reached = false;
     while (index < validated.length) {
       if (signal.aborted) {
         await this.#durability.interruptRun(
@@ -330,27 +357,17 @@ export class ToolRuntime {
       }
       const current = validated[index];
       if (current === undefined) throw new ToolRuntimeInterruptedError();
-      if (
-        !t2Reached &&
-        current.validation.ok &&
-        current.validation.arguments.name === "read"
-      ) {
+      if (isObservation(current)) {
         let end = index;
         while (end < validated.length) {
           const next = validated[end];
-          if (
-            next === undefined ||
-            !next.validation.ok ||
-            next.validation.arguments.name !== "read"
-          ) {
-            break;
-          }
+          if (next === undefined || !isObservation(next)) break;
           end += 1;
         }
-        for (let start = index; start < end; start += READ_TOOL_PARALLELISM) {
+        for (let start = index; start < end; start += OBSERVATION_PARALLELISM) {
           const slice = validated.slice(
             start,
-            Math.min(start + READ_TOOL_PARALLELISM, end),
+            Math.min(start + OBSERVATION_PARALLELISM, end),
           );
           const settled = await Promise.allSettled(
             slice.map(({ call, validation }) =>
@@ -374,12 +391,9 @@ export class ToolRuntime {
         index = end;
         continue;
       }
-      if (
-        current.validation.ok &&
-        current.validation.arguments.name !== "read"
-      ) {
-        t2Reached = true;
-      }
+      // Everything else runs alone: the calls before it are already committed
+      // and the call after it does not start until this one is. That is what
+      // keeps effects in the order the model declared them.
       const pending = await this.#executeValidated(
         current.call,
         current.validation,

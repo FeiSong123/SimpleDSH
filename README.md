@@ -1,8 +1,10 @@
-# SimpleDSH
+# FlashCoder
+
+![FlashCoder typing at its prompt](docs/demo.gif)
 
 A cache-first, crash-recoverable coding agent for DeepSeek.
 
-SimpleDSH is a coding agent that runs in your terminal and talks to
+FlashCoder is a coding agent that runs in your terminal and talks to
 `api.deepseek.com` directly. It reads and edits files, runs shell commands, and
 writes down everything it did in a form you can replay.
 
@@ -14,9 +16,9 @@ npm registry yet.
 Node 22 or newer, on macOS or Linux.
 
 ```sh
-curl -fsSL https://github.com/Owen718/SimpleDSH/releases/download/v0.1.0-rc.1/simpledsh-0.1.0-rc.1.tgz -o simpledsh.tgz
-npm install -g ./simpledsh.tgz
-simpledsh login
+curl -fsSL https://github.com/Owen718/FlashCoder/releases/download/v0.1.0-rc.4/flashcoder-0.1.0-rc.4.tgz -o flashcoder.tgz
+npm install -g ./flashcoder.tgz
+flashcoder login
 ```
 
 Download first, then install from the file. Recent npm refuses to fetch tarballs
@@ -28,10 +30,10 @@ package declares no install-time scripts and never will — running a build on
 your machine during `npm install` is the shape of supply-chain problem this
 project avoids elsewhere, so it is not going to introduce one here.
 
-`simpledsh login` prompts for a DeepSeek API key without echoing it, checks it
+`flashcoder login` prompts for a DeepSeek API key without echoing it, checks it
 against the provider before saving, and writes it to
-`~/.config/dsh/credentials` with mode `0600`. That path is outside any
-repository, so the key cannot be committed by accident. `simpledsh logout`
+`~/.config/flashcoder/credentials` with mode `0600`. That path is outside any
+repository, so the key cannot be committed by accident. `flashcoder logout`
 removes it.
 
 The key is read from, in order: the `DEEPSEEK_API_KEY` environment variable, a
@@ -41,21 +43,38 @@ Git-ignored and mode `0600` or startup refuses.
 ### From source
 
 ```sh
-git clone https://github.com/Owen718/SimpleDSH && cd SimpleDSH
+git clone https://github.com/Owen718/FlashCoder && cd FlashCoder
 npm install
 npm run build
 npm link
 ```
 
+## Upgrading from SimpleDSH
+
+This project was called SimpleDSH through v0.1.0-rc.2. Nothing you already have
+is lost or moved:
+
+- A workspace that already holds a `.dsh/` directory keeps using it. Moving a
+  Journal would be a rewrite, and this is a system that does not rewrite durable
+  state. New workspaces get `.flashcoder/`.
+- A key under `~/.config/dsh/credentials` is still read when there is nothing at
+  the new path, so you do not have to log in again. It is never written there
+  again: `flashcoder logout` and the next `flashcoder login` move it across.
+- Sessions created by an older binary keep their frozen Cache ABI, including the
+  system prompt that called the agent SimpleDSH. They continue without a cache
+  break. Only new Sessions get the new prefix.
+
+`npm uninstall -g simpledsh` removes the old command.
+
 ## Use
 
 ```
-simpledsh                        interactive, multi-turn
-simpledsh run "<prompt>"         one turn, then exit
-simpledsh sessions               list this workspace's sessions
-simpledsh continue [session-id]  add a turn to a finished session
-simpledsh inspect <session-id>   read-only projection of the durable facts
-simpledsh recover <session-id>   take over a session whose last run was interrupted
+flashcoder                        interactive, multi-turn
+flashcoder run "<prompt>"         one turn, then exit
+flashcoder sessions               list this workspace's sessions
+flashcoder continue [session-id]  add a turn to a finished session
+flashcoder inspect <session-id>   read-only projection of the durable facts
+flashcoder recover <session-id>   take over a session whose last run was interrupted
 ```
 
 Every tool call is shown as it settles:
@@ -84,7 +103,7 @@ workspace path, `↑`/`↓` walk earlier messages, `Ctrl-D` exits.
 /effort    how hard the model thinks: low, high, max
 /login     store a DeepSeek API key
 /logout    remove the stored key
-/session   show the current session id
+/session   pick a session in this workspace and resume it
 /exit      leave, and /quit does the same
 ```
 
@@ -103,7 +122,7 @@ same way compaction does, and the next turn starts cold on purpose.
 To let a command decide whether the work stands up:
 
 ```sh
-simpledsh run --verify "npm test" --protect test "fix the failing case"
+flashcoder run --verify "npm test" --protect test "fix the failing case"
 ```
 
 ## Design
@@ -154,7 +173,7 @@ search. DeepSeek's search is a server-side `web_search` tool in the Responses
 API (`/responses`) — the chat completions API only accepts `function` tools and
 there is no client-side search endpoint. When the model decides the answer
 needs facts the workspace cannot provide, it calls `web_search` with a
-`search_query`; SimpleDSH sends one Responses API round with the same
+`search_query`; FlashCoder sends one Responses API round with the same
 credential and the built-in `web_search` tool, and feeds the provider's
 search-grounded answer back as the tool result. Sessions opened before this
 feature keep their frozen tools ABI and never search.
@@ -165,7 +184,7 @@ feature keep their frozen tools ABI and never search.
 can read any file your account can read, including credentials outside the
 workspace, and its writes are not confined to the project directory.
 
-There is no sandbox. If you need one, run SimpleDSH inside a container, a
+There is no sandbox. If you need one, run FlashCoder inside a container, a
 virtual machine, or a separate Unix account. Treat it as you would treat running
 a script someone sent you.
 
@@ -188,5 +207,5 @@ Tests are grouped by area under `test/`: `protocol`, `context`, `journal`,
 `05bf9df`, MIT, Copyright (c) 2025 Mario Zechner. Each file records its
 upstream path; the licence is in `LICENSE.pi`.
 
-SimpleDSH is an independent project. It is not affiliated with, endorsed by, or
+FlashCoder is an independent project. It is not affiliated with, endorsed by, or
 sponsored by DeepSeek.

@@ -43,6 +43,11 @@ import { isKnownSlashCommand } from "./slash-command.js";
 import { isResumable, MAX_AUTO_RESUMES, withAutoResume } from "./resume.js";
 import { banner, type RunContext } from "./banner.js";
 import { Screen } from "./screen.js";
+import {
+  listSessions,
+  sessionListRows,
+  type SessionSummary,
+} from "./sessions.js";
 import { withTruncationContinuation } from "./truncation.js";
 import { color, duration, money, tokens } from "./theme.js";
 import { formatToolActivity } from "./transcript.js";
@@ -54,9 +59,9 @@ const COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "effort", description: "how hard the model thinks" },
   { name: "login", description: "store a DeepSeek API key" },
   { name: "logout", description: "remove the stored key" },
-  { name: "session", description: "show the current session id" },
-  { name: "exit", description: "leave simpledsh" },
-  { name: "quit", description: "leave simpledsh" },
+  { name: "session", description: "list this workspace's sessions" },
+  { name: "exit", description: "leave flashcoder" },
+  { name: "quit", description: "leave flashcoder" },
 ]);
 
 const HELP = [
@@ -105,6 +110,8 @@ export class InteractiveSession {
   #exitHintShown = false;
   #promptTokens = 0;
   #compacting = false;
+  /** What the picker is showing, so a chosen row maps back to a Session. */
+  #offered: readonly SessionSummary[] | null = null;
   #effort: ReasoningEffort | null = null;
   readonly #limits: RunBudgetLimits;
   readonly #compactAtTokens: number;
@@ -308,6 +315,81 @@ export class InteractiveSession {
   }
 
   /**
+   * Every Session recorded under this workspace, most recent first.
+   *
+   * The one in front of you is marked; the rest are what you could pick up
+   * again, so each line ends with the command that would do it. A `completed`
+   * Session takes a new turn with `continue`; an `interrupted` one has a Run
+   * that never closed and has to go through `recover` first, which is a
+   * different act and says so.
+   */
+  async #showSessions(): Promise<void> {
+    const sessions = await listSessions(this.#workspaceRoot);
+    if (sessions.length === 0) {
+      this.#screen.say(color.dim("no sessions in this workspace"));
+      return;
+    }
+    if (this.#running) {
+      this.#screen.say(
+        color.warn("[a turn is running; interrupt it before switching sessions]"),
+      );
+      return;
+    }
+    // Four columns come off the top: the marker the picker puts in front of
+    // each row, and the padding the screen puts on both sides of every line.
+    const rows = sessionListRows(
+      sessions,
+      this.#sessionId,
+      (process.stdout.columns || 80) - 4,
+    );
+    const at = Math.max(
+      0,
+      sessions.findIndex(({ sessionId }) => sessionId === this.#sessionId),
+    );
+    this.#offered = sessions;
+    this.#screen.openPicker(
+      "resume a session",
+      rows.map(({ text }) => text),
+      at,
+    );
+  }
+
+  /**
+   * Take up the Session chosen in the picker.
+   *
+   * This replaces the Session the loop is in. Nothing durable is touched: the
+   * Session being left is already closed at its last Commit Boundary, and the
+   * one being taken up continues from its own. What has to be dropped is the
+   * bookkeeping that belonged to the old one — the observed prompt size decides
+   * when compaction fires, and the ledger is a different Session's money.
+   */
+  readonly #onChoose = (index: number | null): void => {
+    const offered = this.#offered;
+    this.#offered = null;
+    if (index === null || offered === null) return;
+    const session = offered[index];
+    if (session === undefined) return;
+    if (session.sessionId === this.#sessionId) return;
+    if (session.state !== "completed") {
+      this.#screen.say(
+        color.warn(
+          `[${session.sessionId} is ${session.state}; run flashcoder recover ${session.sessionId} first]`,
+        ),
+      );
+      return;
+    }
+    this.#sessionId = session.sessionId;
+    this.#started = true;
+    this.#promptTokens = 0;
+    this.#screen.setLedger("");
+    this.#screen.say(
+      color.dim(
+        `resumed ${session.sessionId} · ${String(session.turns)} turn${session.turns === 1 ? "" : "s"} so far`,
+      ),
+    );
+  };
+
+  /**
    * The fixed built-in commands. Everything else typed at the prompt is a
    * message to the model, so these need a prefix that a prompt would not use.
    */
@@ -358,9 +440,7 @@ export class InteractiveSession {
         );
         break;
       case "session":
-        this.#screen.say(
-          color.dim(`session ${this.#sessionId ?? "not started"}`),
-        );
+        await this.#showSessions();
         break;
       case "exit":
       case "quit":
@@ -399,7 +479,7 @@ export class InteractiveSession {
       error instanceof SessionInterruptedError ? error.reason : describe(error);
     this.#screen.say(color.error(`[interrupted: ${reason}]`));
     if (sessionId !== null) {
-      this.#screen.say(color.dim(`  recover with: simpledsh recover ${sessionId}`));
+      this.#screen.say(color.dim(`  recover with: flashcoder recover ${sessionId}`));
     }
   }
 
@@ -407,7 +487,7 @@ export class InteractiveSession {
    * A stream that breaks after the model started producing output cannot be
    * replayed into the same Run — invariant 7 forbids it. Creating a *new* Run
    * from the last safe Commit Boundary is allowed, and is exactly what
-   * `simpledsh recover` does, so do that here instead of dropping the user out.
+   * `flashcoder recover` does, so do that here instead of dropping the user out.
    */
   async #autoRecover(sessionId: SessionId): Promise<void> {
     for (let attempt = 1; attempt <= MAX_AUTO_RESUMES; attempt += 1) {
@@ -443,7 +523,7 @@ export class InteractiveSession {
     }
     this.#screen.say(
       color.warn(
-        `[still failing after ${String(MAX_AUTO_RESUMES)} attempts; run simpledsh recover ${sessionId} when ready]`,
+        `[still failing after ${String(MAX_AUTO_RESUMES)} attempts; run flashcoder recover ${sessionId} when ready]`,
       ),
     );
   }
@@ -632,6 +712,7 @@ export class InteractiveSession {
     }
     this.#screen.attach({
       onSubmit: this.#onSubmit,
+      onChoose: this.#onChoose,
       onPick: (value) => {
         void this.#chooseEffort(value);
       },
@@ -676,7 +757,7 @@ export class InteractiveSession {
     } finally {
       this.#screen.stop();
       if (this.#sessionId !== null) {
-        process.stderr.write(`simpledsh: session_id=${this.#sessionId}\n`);
+        process.stderr.write(`flashcoder: session_id=${this.#sessionId}\n`);
       }
     }
   }

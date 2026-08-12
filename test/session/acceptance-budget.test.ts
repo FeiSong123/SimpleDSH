@@ -62,7 +62,7 @@ function eventIds(fill: string): EventIdentitySource {
 }
 
 async function workspace(t: TestContext, label: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), `simpledsh-budget-${label}-`));
+  const root = await mkdtemp(join(tmpdir(), `flashcoder-budget-${label}-`));
   t.after(async () => rm(root, { recursive: true, force: true }));
   return root;
 }

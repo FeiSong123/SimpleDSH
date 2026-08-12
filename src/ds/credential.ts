@@ -218,7 +218,7 @@ function inspectEnvFile(
 }
 
 
-/** Where `simpledsh login` stores the key, outside any repository. */
+/** Where `flashcoder login` stores the key, outside any repository. */
 export function userCredentialPath(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
@@ -226,6 +226,21 @@ export function userCredentialPath(
   if (home === undefined || home.length === 0) {
     throw new CredentialError("missing", "HOME is not set");
   }
+  return join(home, ".config", "flashcoder", "credentials");
+}
+
+/**
+ * Where the key was stored while this was called SimpleDSH.
+ *
+ * Read-only, and only when the current path holds nothing: an upgrade should
+ * not make someone log in again, and it should not silently keep writing to a
+ * directory named after another project's command either.
+ */
+export function legacyUserCredentialPath(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string | null {
+  const home = environment["HOME"];
+  if (home === undefined || home.length === 0) return null;
   return join(home, ".config", "dsh", "credentials");
 }
 
@@ -288,10 +303,16 @@ export function loadDeepSeekCredentialState(
     inheritedSecret === undefined,
   );
   // Precedence: process environment, then the repository .env, then the
-  // user-level file written by `simpledsh login`.
+  // user-level file written by `flashcoder login`.
   let secret = inheritedSecret ?? inspected.secret;
   if (secret === undefined) {
     secret = readUserCredential(userCredentialPath(environment));
+  }
+  if (secret === undefined) {
+    // Written under the old name. Read but never written, so `logout` and the
+    // next `login` move the key across on their own.
+    const legacy = legacyUserCredentialPath(environment);
+    if (legacy !== null) secret = readUserCredential(legacy);
   }
   const credential = secret === undefined ? null : createCredential(secret);
   return Object.freeze({

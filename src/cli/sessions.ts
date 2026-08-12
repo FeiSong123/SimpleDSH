@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { freezeBytes } from "../bytes/types.js";
+import { storageDirectoryName } from "../journal/paths.js";
 import { viewUser } from "../bytes/view.js";
 import { openJournalReadOnly, type SessionId } from "../journal/index.js";
 import type { AnyVerifiedJournalEvent } from "../journal/index.js";
@@ -59,7 +60,7 @@ async function summarize(
     const opened = await openJournalReadOnly(workspaceRoot, sessionId);
     events = opened.replay.events;
   } catch {
-    // A Session that cannot be replayed read-only is not listable. `simpledsh
+    // A Session that cannot be replayed read-only is not listable. `flashcoder
     // inspect` still reports exactly why.
     return null;
   }
@@ -110,7 +111,9 @@ export async function listSessions(
 ): Promise<readonly SessionSummary[]> {
   let entries: string[];
   try {
-    entries = await readdir(join(workspaceRoot, ".dsh", "sessions"));
+    entries = await readdir(
+      join(workspaceRoot, storageDirectoryName(workspaceRoot), "sessions"),
+    );
   } catch {
     return Object.freeze([]);
   }
@@ -128,7 +131,7 @@ export async function listSessions(
 }
 
 /**
- * The Session `simpledsh continue` picks when the caller names none: the most
+ * The Session `flashcoder continue` picks when the caller names none: the most
  * recently active one that is safe to append a new user turn to.
  */
 export async function mostRecentContinuableSession(
@@ -136,6 +139,66 @@ export async function mostRecentContinuableSession(
 ): Promise<SessionSummary | null> {
   const sessions = await listSessions(workspaceRoot);
   return sessions.find(({ state }) => state === "completed") ?? null;
+}
+
+/** `2026-08-11 15:11`, in the reader's own timezone. */
+function when(timestamp: string | null): string {
+  if (timestamp === null) return "-".padEnd(16);
+  const at = new Date(timestamp);
+  if (Number.isNaN(at.getTime())) return "-".padEnd(16);
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return (
+    `${String(at.getFullYear())}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+    ` ${pad(at.getHours())}:${pad(at.getMinutes())}`
+  );
+}
+
+/**
+ * One unpainted row per Session, trimmed to the room available.
+ *
+ * The id sits on the right, where it is out of the way of the two things you
+ * read a list like this for — when you were last in a Session and what you were
+ * doing in it — but still copyable into `flashcoder continue`. Between them the
+ * subject takes whatever room is left; the turn count is dropped before the
+ * subject is squeezed under twenty columns, and the subject goes before the
+ * number, the date, the state or the id do.
+ */
+export function sessionListRows(
+  sessions: readonly SessionSummary[],
+  currentSessionId: SessionId | null,
+  room: number,
+): readonly Readonly<{ text: string; current: boolean }>[] {
+  const ordinal = Math.max(2, String(sessions.length).length);
+  // number, date and state on the left; the id on the right. What is left over
+  // is shared by the turn count and the subject, each with its own separator.
+  const head = ordinal + 2 + 16 + 2 + 11;
+  const tail = 2 + 36;
+  const free = room - head - tail;
+  const withTurns = free >= 2 + 8 + 2 + 20;
+  const subject = withTurns ? free - 10 - 2 : free - 2;
+  return Object.freeze(
+    sessions.map((session, index) => {
+      const turns = `${String(session.turns)} turn${session.turns === 1 ? "" : "s"}`;
+      const columns = [
+        String(index + 1).padStart(ordinal),
+        when(session.lastActivityAt),
+        session.state.padEnd(11),
+      ];
+      if (withTurns) columns.push(turns.padEnd(8));
+      const title = session.title ?? "(no inline prompt)";
+      if (subject >= 8) {
+        columns.push(
+          (title.length > subject ? `${title.slice(0, subject - 1)}…` : title)
+            .padEnd(subject),
+        );
+      }
+      const left = columns.join("  ");
+      return Object.freeze({
+        text: `${left}  ${session.sessionId}`,
+        current: session.sessionId === currentSessionId,
+      });
+    }),
+  );
 }
 
 export function formatSessionList(

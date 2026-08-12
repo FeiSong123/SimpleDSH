@@ -44,7 +44,7 @@ async function workspace(): Promise<{
   readonly root: string;
   readonly paths: SessionPaths;
 }> {
-  const root = await mkdtemp(join(tmpdir(), "simpledsh-lease-"));
+  const root = await mkdtemp(join(tmpdir(), "flashcoder-lease-"));
   roots.push(root);
   return { root, paths: createSessionPaths(root, SESSION_ID) };
 }
@@ -112,7 +112,7 @@ test("permission modes remain 0700 and 0600 while unsafe existing paths fail clo
   });
 
   for (const path of [
-    paths.dshDir,
+    paths.storageDir,
     paths.sessionsDir,
     paths.sessionDir,
     join(paths.sessionDir, "blobs"),
@@ -143,8 +143,8 @@ test("permission modes remain 0700 and 0600 while unsafe existing paths fail clo
   await assert.rejects(bootstrapSession(paths), hasCode("JOURNAL_UNSAFE_PATH"));
 
   const widened = await workspace();
-  await mkdir(widened.paths.dshDir, { mode: 0o755 });
-  await chmod(widened.paths.dshDir, 0o755);
+  await mkdir(widened.paths.storageDir, { mode: 0o755 });
+  await chmod(widened.paths.storageDir, 0o755);
   await assert.rejects(
     bootstrapSession(widened.paths),
     hasCode("JOURNAL_UNSAFE_PATH"),
@@ -153,7 +153,7 @@ test("permission modes remain 0700 and 0600 while unsafe existing paths fail clo
   const linked = await workspace();
   const linkTarget = join(linked.root, "link-target");
   await mkdir(linkTarget, { mode: 0o700 });
-  await symlink(linkTarget, linked.paths.dshDir);
+  await symlink(linkTarget, linked.paths.storageDir);
   await assert.rejects(
     bootstrapSession(linked.paths),
     hasCode("JOURNAL_UNSAFE_PATH"),

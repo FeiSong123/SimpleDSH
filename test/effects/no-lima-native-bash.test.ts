@@ -78,7 +78,7 @@ test(
       true,
       "Node must be launched absolutely",
     );
-    const root = await mkdtemp(join(tmpdir(), "simpledsh-no-lima-parent-"));
+    const root = await mkdtemp(join(tmpdir(), "flashcoder-no-lima-parent-"));
     const emptyBin = join(root, "empty-bin");
     const workerPath = fileURLToPath(
       new URL("./no-lima-worker.js", import.meta.url),

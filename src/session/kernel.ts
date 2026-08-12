@@ -2264,7 +2264,7 @@ async function runKernel(
         results = await new ToolRuntime({
           durability,
           cwd: resolve(input.workspaceRoot),
-          storageRoot: opened.paths.dshDir,
+          storageRoot: opened.paths.storageDir,
           canonicalEnvPath: resolve(input.workspaceRoot, ".env"),
           umask: 0o022,
           toolsProfile,

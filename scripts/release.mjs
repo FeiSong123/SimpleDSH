@@ -41,7 +41,7 @@ renameSync(packed, target);
 // Prove the artifact installs and runs before anyone is told to trust it.
 // Outside the repository: npm walks upwards looking for a package root, and
 // installing inside our own tree makes it find this one.
-const probe = mkdtempSync(join(tmpdir(), "simpledsh-release-"));
+const probe = mkdtempSync(join(tmpdir(), "flashcoder-release-"));
 // Absolute: npm reads a bare relative path as a git remote, not a file.
 run("npm", ["install", "-g", "--prefix", probe, resolve(target)]);
 const usage = capture(join(probe, "bin", manifest.name), ["--help"]);
@@ -59,7 +59,7 @@ process.stdout.write(
     `  gh release create ${tag} ${target} --title ${tag} --notes-file <notes>`,
     "",
     "Users then install with:",
-    `  curl -fsSL https://github.com/Owen718/SimpleDSH/releases/download/${tag}/${packed} -o ${packed}`,
+    `  curl -fsSL https://github.com/Owen718/FlashCoder/releases/download/${tag}/${packed} -o ${packed}`,
     `  npm install -g ./${packed}`,
     "",
   ].join("\n"),

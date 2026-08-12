@@ -33,7 +33,7 @@ import {
   ToolDurabilityError,
 } from "../../src/tool/durability.js";
 import {
-  READ_TOOL_PARALLELISM,
+  OBSERVATION_PARALLELISM,
   type CommittedToolResult,
 } from "../../src/tool/runtime.js";
 import {
@@ -426,7 +426,7 @@ test("active edit match failures durably expose canonical matchCount without an 
 test("read batches cap concurrency and commit results in declaration order", async (t) => {
   // More calls than the cap, so the cap has to actually bind and a second
   // slice has to run after the first.
-  const calls = Array.from({ length: READ_TOOL_PARALLELISM + 6 }, (_, index) =>
+  const calls = Array.from({ length: OBSERVATION_PARALLELISM + 6 }, (_, index) =>
     toolCall(
       `call_read_${String(index)}`,
       "read",
@@ -479,8 +479,8 @@ test("read batches cap concurrency and commit results in declaration order", asy
     new AbortController().signal,
   );
   // Pinned: the spec states this number, so a silent change fails here.
-  assert.equal(READ_TOOL_PARALLELISM, 12);
-  assert.equal(probe.max, READ_TOOL_PARALLELISM);
+  assert.equal(OBSERVATION_PARALLELISM, 12);
+  assert.equal(probe.max, OBSERVATION_PARALLELISM);
   assert.deepEqual(
     committed.map((value) => value.toolCallId),
     calls.map((call) => call.id),
@@ -715,7 +715,7 @@ test("native bash has the current user's file authority outside the workspace", 
     t.skip("Windows intentionally has no native bash path");
     return;
   }
-  const markerRoot = await mkdtemp(join(tmpdir(), "simpledsh-user-authority-"));
+  const markerRoot = await mkdtemp(join(tmpdir(), "flashcoder-user-authority-"));
   t.after(async () => {
     await rm(markerRoot, { recursive: true, force: true });
   });
@@ -1154,4 +1154,178 @@ test("web_search is unknown under the previous edit-v5 tools ABI", async (t) => 
   assert.equal(result?.payload.artifactId, null);
   const view = viewTool(committed[0]!.messageBytes);
   assert.equal(view.content, '{"status":"invalid","code":"unknown_tool"}');
+});
+
+test("observations batch after an effect, not only before the first one", async (t) => {
+  // The rule used to be that the first effect ended batching for the whole
+  // reply, so the reads below ran one at a time. Nothing about them depends on
+  // each other: the write ahead of them is a barrier, and once it is committed
+  // they all observe the same world.
+  const calls = [
+    toolCall("call_write_gate", "write", JSON.stringify({
+      path: "gate.txt",
+      content: "gate",
+    })),
+    ...Array.from({ length: 4 }, (_, index) =>
+      toolCall(
+        `call_read_after_${String(index)}`,
+        "read",
+        JSON.stringify({ path: `after-${String(index)}.txt` }),
+      ),
+    ),
+  ];
+  const probe = { active: 0, max: 0 };
+  const fixture = await createRuntimeFixture(t, calls, {
+    durabilityFactory: (options) => {
+      class ProbedDurability extends JournalToolDurability {
+        override async beginArtifact(): Promise<ArtifactSink> {
+          const sink = await super.beginArtifact();
+          return Object.freeze({
+            write: async (bytes: Uint8Array | FrozenBytes) => {
+              probe.active += 1;
+              probe.max = Math.max(probe.max, probe.active);
+              try {
+                await delay(120);
+                await sink.write(bytes);
+              } finally {
+                probe.active -= 1;
+              }
+            },
+            publish: (metadata: ArtifactMetadata) => sink.publish(metadata),
+            abort: () => sink.abort(),
+          });
+        }
+      }
+      return new ProbedDurability(options);
+    },
+  });
+  await Promise.all(
+    Array.from({ length: 4 }, (_, index) =>
+      writeFile(
+        join(fixture.workspace, `after-${String(index)}.txt`),
+        `payload-${String(index)}`,
+        { flag: "wx", mode: 0o600 },
+      ),
+    ),
+  );
+
+  const committed = await fixture.runtime.execute(
+    fixture.calls,
+    new AbortController().signal,
+  );
+  assert.equal(probe.max, 4, "the reads after the write did not overlap");
+  assert.deepEqual(
+    committed.map((value) => value.toolCallId),
+    calls.map((call) => call.id),
+  );
+  const durableResults = results(await eventsAfterAssistant(fixture));
+  assert.deepEqual(
+    durableResults.map((event) => event.payload.toolCallId),
+    calls.map((call) => call.id),
+  );
+});
+
+test("searches in one reply run beside each other", async (t) => {
+  const calls = Array.from({ length: 3 }, (_, index) =>
+    toolCall(
+      `call_search_${String(index)}`,
+      "web_search",
+      JSON.stringify({ search_query: `query ${String(index)}` }),
+    ),
+  );
+  const probe = { active: 0, max: 0 };
+  const fixture = await createRuntimeFixture(t, calls, {
+    cacheAbi: buildCacheAbiV2(),
+    webSearch: async () => {
+      probe.active += 1;
+      probe.max = Math.max(probe.max, probe.active);
+      try {
+        await delay(150);
+        return webSearchFixtureResponse();
+      } finally {
+        probe.active -= 1;
+      }
+    },
+  });
+
+  const committed = await fixture.runtime.execute(
+    fixture.calls,
+    new AbortController().signal,
+  );
+  assert.equal(probe.max, 3, "the searches were issued one at a time");
+  assert.deepEqual(
+    committed.map((value) => value.toolCallId),
+    calls.map((call) => call.id),
+  );
+});
+
+test("an effect between two batches is a barrier", async (t) => {
+  // read, read, write, read, read: the reads either side may overlap each
+  // other, but nothing may overlap the write, or the second pair could observe
+  // a file that is half written.
+  const spans = new Map<number, { from: number; to: number }>();
+  let step = 0;
+  let ordinal = 0;
+  const calls = [
+    toolCall("call_before_0", "read", JSON.stringify({ path: "before-0.txt" })),
+    toolCall("call_before_1", "read", JSON.stringify({ path: "before-1.txt" })),
+    toolCall("call_barrier", "write", JSON.stringify({
+      path: "barrier.txt",
+      content: "barrier",
+    })),
+    toolCall("call_after_0", "read", JSON.stringify({ path: "after-0.txt" })),
+    toolCall("call_after_1", "read", JSON.stringify({ path: "after-1.txt" })),
+  ];
+  const fixture = await createRuntimeFixture(t, calls, {
+    durabilityFactory: (options) => {
+      class ProbedDurability extends JournalToolDurability {
+        override async beginArtifact(): Promise<ArtifactSink> {
+          const sink = await super.beginArtifact();
+          // Every tool opens exactly one sink, in declaration order, so the
+          // ordinal identifies the call even though `write` never streams.
+          const mine = ordinal;
+          ordinal += 1;
+          step += 1;
+          spans.set(mine, { from: step, to: step });
+          return Object.freeze({
+            write: async (bytes: Uint8Array | FrozenBytes) => {
+              await delay(60);
+              await sink.write(bytes);
+            },
+            publish: async (metadata: ArtifactMetadata) => {
+              const published = await sink.publish(metadata);
+              step += 1;
+              const span = spans.get(mine);
+              if (span !== undefined) span.to = step;
+              return published;
+            },
+            abort: () => sink.abort(),
+          });
+        }
+      }
+      return new ProbedDurability(options);
+    },
+  });
+  await Promise.all(
+    ["before-0", "before-1", "after-0", "after-1"].map((name) =>
+      writeFile(join(fixture.workspace, `${name}.txt`), name, {
+        flag: "wx",
+        mode: 0o600,
+      }),
+    ),
+  );
+
+  await fixture.runtime.execute(fixture.calls, new AbortController().signal);
+  assert.equal(spans.size, calls.length);
+  const overlaps = (left: number, right: number): boolean => {
+    const a = spans.get(left);
+    const b = spans.get(right);
+    if (a === undefined || b === undefined) return false;
+    return a.from <= b.to && b.from <= a.to;
+  };
+  assert.ok(overlaps(0, 1), "the reads before the write did not overlap");
+  assert.ok(overlaps(3, 4), "the reads after the write did not overlap");
+  for (const other of [0, 1, 3, 4]) {
+    assert.ok(!overlaps(2, other), `the write overlapped read ${String(other)}`);
+  }
 });

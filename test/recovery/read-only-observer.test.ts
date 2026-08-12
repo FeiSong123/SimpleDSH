@@ -57,7 +57,7 @@ function eventIds(fill: string): EventIdentitySource {
 }
 
 async function workspace(t: TestContext, label: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), `simpledsh-recovery-${label}-`));
+  const root = await mkdtemp(join(tmpdir(), `flashcoder-recovery-${label}-`));
   t.after(async () => rm(root, { recursive: true, force: true }));
   return root;
 }
@@ -172,7 +172,7 @@ test("completed Session opens read-only from durable facts without filesystem mu
   const root = await workspace(t, "completed-read-only");
   const id = sessionId("1");
   await createCompletedSession(root, id);
-  const sessionDir = join(root, ".dsh", "sessions", id);
+  const sessionDir = join(root, ".flashcoder", "sessions", id);
   const before = await filesystemInventory(sessionDir);
 
   const observed = await openJournalReadOnly(root, id);

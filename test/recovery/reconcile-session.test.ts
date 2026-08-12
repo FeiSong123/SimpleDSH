@@ -76,7 +76,7 @@ function eventIds(fill: string): EventIdentitySource {
 }
 
 async function workspace(t: TestContext, label: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), `simpledsh-reconcile-${label}-`));
+  const root = await mkdtemp(join(tmpdir(), `flashcoder-reconcile-${label}-`));
   t.after(async () => rm(root, { recursive: true, force: true }));
   return root;
 }
@@ -504,7 +504,7 @@ test("invalid reconciliation JSON, closed keys, base64, and terminal fail before
     callId,
     "printf INVALID >> must-not-exist.txt",
   );
-  const sessionDir = join(root, ".dsh", "sessions", id);
+  const sessionDir = join(root, ".flashcoder", "sessions", id);
   const invalidDocuments: readonly FrozenBytes[] = Object.freeze([
     utf8Bytes("{not-json\n"),
     utf8Bytes(
