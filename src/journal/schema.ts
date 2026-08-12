@@ -456,6 +456,7 @@ function normalizePayload(type: JournalEventType, input: unknown): unknown {
           "date",
           "cwd",
           "git",
+          "tree",
         ] as const),
         artifactId: typedId(value["artifactId"], "artifact"),
         byteCount: nonNegative(value["byteCount"]),

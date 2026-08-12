@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readdirSync, type Dirent } from "node:fs";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { delimiter, dirname, resolve } from "node:path";
@@ -31,6 +32,7 @@ import {
   runDeepSeekOfficialWithRetry,
   type DeepSeekRetryLifecycle,
 } from "../ds/transport.js";
+import { storageDirectoryName } from "../journal/paths.js";
 import { loadProjectInstructions } from "./project-instructions.js";
 import {
   runDeepSeekWebSearch,
@@ -139,7 +141,19 @@ export interface SessionEnvironmentFacts {
   readonly date?: string;
   readonly cwd?: string;
   readonly git?: string;
+  readonly tree?: string;
 }
+
+/**
+ * What every turn carries, and what only the first turn of a Lineage does.
+ *
+ * `date` and `git` change while the model works, so they are worth resending.
+ * `cwd` and the top-level listing do not: repeating them would put the same
+ * bytes in front of the model on every turn for no new information, and the
+ * model can list a directory itself the moment it needs a fresher answer.
+ */
+const EVERY_TURN_FACTS = ["date", "git"] as const;
+const FIRST_TURN_FACTS = ["date", "cwd", "git", "tree"] as const;
 
 interface KernelCommonInput {
   readonly workspaceRoot: string;
@@ -928,7 +942,7 @@ async function publishFact(
   sessionId: SessionId,
   lineageId: LineageId,
   runId: RunId,
-  kind: "user_input" | "date" | "cwd" | "git",
+  kind: "user_input" | "date" | "cwd" | "git" | "tree",
   value: string,
 ): Promise<Readonly<{
   readonly published: VerifiedJournalEvent<"artifact_published">;
@@ -1065,7 +1079,7 @@ async function initialize(
       input.userInput,
     ),
   ];
-  for (const kind of ["date", "cwd", "git"] as const) {
+  for (const kind of FIRST_TURN_FACTS) {
     const value = input.environmentFacts?.[kind];
     if (value !== undefined) {
       factInputs.push(
@@ -1210,7 +1224,8 @@ async function initializeContinuation(
       input.userInput,
     ),
   ];
-  for (const kind of ["date", "cwd", "git"] as const) {
+  // A continued turn repeats only what can have changed since the last one.
+  for (const kind of EVERY_TURN_FACTS) {
     const value = input.environmentFacts?.[kind];
     if (value !== undefined) {
       factInputs.push(
@@ -2406,6 +2421,87 @@ function sessionGitEnvironment(workspaceRoot: string): NodeJS.ProcessEnv {
   return Object.freeze(environment);
 }
 
+/**
+ * How many changed files the status fact names before it stops counting them.
+ *
+ * The list grows as the model works, and it is resent every turn. Unbounded, a
+ * task that touches fifty files would put fifty lines nobody asked for in front
+ * of every later turn.
+ */
+export const GIT_STATUS_ENTRY_LIMIT = 20;
+
+/** How many top-level entries the tree fact names. */
+export const TREE_ENTRY_LIMIT = 50;
+
+/** `…and 7 more files`, or nothing at all. Truncation is never silent. */
+function boundedList(
+  lines: readonly string[],
+  limit: number,
+  noun: string,
+): string {
+  if (lines.length <= limit) return lines.join("\n");
+  const shown = lines.slice(0, limit).join("\n");
+  return `${shown}\n…and ${String(lines.length - limit)} more ${noun}`;
+}
+
+/**
+ * Which of these names the repository itself says do not count.
+ *
+ * One `git check-ignore` for the whole list rather than a set of invented
+ * rules: `node_modules`, `dist` and `.DS_Store` are noise here because this
+ * repository says so, not because the harness guessed. A workspace that is not
+ * a repository, or a git that fails, hides nothing.
+ */
+function gitIgnoredNames(
+  cwd: string,
+  names: readonly string[],
+): ReadonlySet<string> {
+  if (names.length === 0) return new Set();
+  const result = spawnSync("git", ["-C", cwd, "check-ignore", "--stdin"], {
+    encoding: "utf8",
+    env: sessionGitEnvironment(cwd),
+    input: `${names.join("\n")}\n`,
+  });
+  // 0 means some were ignored, 1 means none were, anything else is a failure.
+  if (result.status !== 0) return new Set();
+  return new Set(result.stdout.split("\n").filter((line) => line.length > 0));
+}
+
+/**
+ * The workspace's top level, once.
+ *
+ * First level only: it says what kind of project this is and where to look,
+ * which is what the model would otherwise spend a turn asking. Going deeper
+ * would be guessing at what matters and would cost bytes on every Session.
+ */
+function captureTree(cwd: string): string {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(cwd, { withFileTypes: true });
+  } catch {
+    return "unreadable";
+  }
+  // `.git` is enormous and never useful; the storage directory is ours.
+  const visible = entries.filter(
+    ({ name }) => name !== ".git" && name !== storageDirectoryName(cwd),
+  );
+  const ignored = gitIgnoredNames(
+    cwd,
+    visible.map(({ name }) => name),
+  );
+  const named = visible
+    .filter(({ name }) => !ignored.has(name))
+    .map((entry) => (entry.isDirectory() ? `${entry.name}/` : entry.name))
+    .sort((left, right) => {
+      const leftDirectory = left.endsWith("/");
+      if (leftDirectory !== right.endsWith("/")) return leftDirectory ? -1 : 1;
+      return left.localeCompare(right);
+    });
+  return named.length === 0
+    ? "empty"
+    : boundedList(named, TREE_ENTRY_LIMIT, "entries");
+}
+
 export async function captureSessionEnvironment(
   workspaceRoot: string,
 ): Promise<SessionEnvironmentFacts> {
@@ -2419,14 +2515,20 @@ export async function captureSessionEnvironment(
     encoding: "utf8",
     env: environment,
   });
-  const git =
-    branch.status === 0 && status.status === 0
-      ? `branch: ${branch.stdout.trim() || "detached"}\nstatus:\n${status.stdout.trim()}`
-      : "not a git repository";
+  let git = "not a git repository";
+  if (branch.status === 0 && status.status === 0) {
+    const changed = status.stdout.split("\n").filter((line) => line.length > 0);
+    const head = `branch: ${branch.stdout.trim() || "detached"}`;
+    git =
+      changed.length === 0
+        ? `${head}\nstatus: clean`
+        : `${head}\nstatus:\n${boundedList(changed, GIT_STATUS_ENTRY_LIMIT, "files")}`;
+  }
   return Object.freeze({
     date: new Date().toISOString().slice(0, 10),
     cwd,
     git,
+    tree: captureTree(cwd),
   });
 }
 

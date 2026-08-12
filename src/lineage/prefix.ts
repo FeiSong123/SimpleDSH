@@ -1054,7 +1054,13 @@ export function selectLineagePrefixV1(
           fail("user Blob is appended before prior protocol/effects close");
         }
         const scope = requireRunScope(event);
-        const expectedOrder = ["user_input", "date", "cwd", "git"] as const;
+        const expectedOrder = [
+          "user_input",
+          "date",
+          "cwd",
+          "git",
+          "tree",
+        ] as const;
         const positions: number[] = [];
         for (const sourceId of event.payload.sourceFactEventIds) {
           const source = events.get(sourceId);

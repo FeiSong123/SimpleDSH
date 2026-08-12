@@ -1259,7 +1259,13 @@ async function applyEvent(
         event.payload.sourceFactEventIds,
         ["fact_recorded"],
       );
-      const expectedOrder = ["user_input", "date", "cwd", "git"] as const;
+      const expectedOrder = [
+        "user_input",
+        "date",
+        "cwd",
+        "git",
+        "tree",
+      ] as const;
       const kinds = sources.map((source) => {
         requireEventSameRun(source.event, event);
         return (source.event.payload as JournalPayloadByType["fact_recorded"]).kind;
