@@ -1,4 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createSessionPaths } from "../journal/paths.js";
 
@@ -351,8 +352,26 @@ export async function mostRecentContinuableSession(
   return null;
 }
 
+/**
+ * The workspace path for one row, shortened from the left when it would
+ * crowd the columns beside it. The home directory shortens to ~.
+ */
+function shortCwd(cwd: string | null): string {
+  if (cwd === null || cwd === "") return "";
+  const home = homedir();
+  let shortened = cwd;
+  if (home !== undefined && cwd.startsWith(home)) {
+    shortened = `~${cwd.slice(home.length)}`;
+  }
+  const limit = 40;
+  if (shortened.length > limit) {
+    return `…${shortened.slice(-(limit - 1))}`;
+  }
+  return shortened;
+}
+
 /** `2026-08-11 15:11`, in the reader's own timezone. */
-function when(timestamp: string | null): string {
+function localWhen(timestamp: string | null): string {
   if (timestamp === null) return "-".padEnd(16);
   const at = new Date(timestamp);
   if (Number.isNaN(at.getTime())) return "-".padEnd(16);
@@ -391,7 +410,7 @@ export function sessionListRows(
       const turns = `${String(session.turns)} turn${session.turns === 1 ? "" : "s"}`;
       const columns = [
         String(index + 1).padStart(ordinal),
-        when(session.lastActivityAt),
+        localWhen(session.lastActivityAt),
         session.state.padEnd(11),
       ];
       if (withTurns) columns.push(turns.padEnd(8));
@@ -403,7 +422,7 @@ export function sessionListRows(
         );
       }
       const left = columns.join("  ");
-      const cwd = session.cwd ?? "";
+      const cwd = shortCwd(session.cwd);
       const cwdPart = cwd ? `  [${cwd}]` : "";
       return Object.freeze({
         text: `${left}  ${session.sessionId}${cwdPart}`,
@@ -418,12 +437,11 @@ export function formatSessionList(
 ): string {
   if (sessions.length === 0) return "no sessions in this workspace\n";
   const lines = sessions.map((session) => {
-    const when = session.lastActivityAt ?? "-";
     const turns = `${String(session.turns)} turn${session.turns === 1 ? "" : "s"}`;
     const title = session.title ?? "(no inline prompt)";
-    const cwd = session.cwd ?? "";
+    const cwd = shortCwd(session.cwd);
     const cwdPart = cwd ? `  [${cwd}]` : "";
-    return `${session.sessionId}  ${when}  ${session.state.padEnd(11)}  ${turns.padEnd(8)}  ${title}${cwdPart}`;
+    return `${session.sessionId}  ${localWhen(session.lastActivityAt)}  ${session.state.padEnd(11)}  ${turns.padEnd(8)}  ${title}${cwdPart}`;
   });
   return `${lines.join("\n")}\n`;
 }

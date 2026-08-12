@@ -495,7 +495,7 @@ export class Screen {
   /** Show the tmux hint once, briefly, if the probe answered "off". */
   #maybeShowTmuxHint(): void {
     if (!this.#tmuxWheelHint || !this.#attached) return;
-    this.note("tmux: 滚轮滚动与鼠标复制需要 mouse 模式，运行 tmux set -g mouse on");
+    this.note("tmux: wheel scrolling and mouse selection need mouse mode; run tmux set -g mouse on");
     const timer = setTimeout(() => {
       this.note("");
     }, 8000);
