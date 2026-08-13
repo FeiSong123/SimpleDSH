@@ -212,6 +212,32 @@ test("mouse selection maps the screen row through the viewport top", (t) => {
   drawn();
 });
 
+test("scrollSelection reveals more content while dragging past the top edge", (t) => {
+  const { tui, drawn } = tallTui(t);
+  drawn(); // settle: rows 30..39 visible
+  // Anchor on the top visible row, then auto-scroll up twice.
+  tui.beginSelection(0, 1);
+  const first = tui.scrollSelection(1, 1);
+  assert.ok(first, "older content is revealed");
+  const second = tui.scrollSelection(1, 1);
+  assert.ok(second, "more older content is revealed");
+  // The selection now spans from the original anchor (line 30) up to the
+  // newly visible top row (line 28).
+  const text = tui.endSelection();
+  assert.ok(text !== null, "selection spans multiple lines");
+  const lines = (text as string).split("\n");
+  assert.ok(lines.length >= 3, `expected 3+ lines, got ${lines.length}: ${text}`);
+  assert.match(lines[0] ?? "", /line 2/u);
+  // No more scrolling once the top of the content is reached.
+  tui.scrollToTop();
+  drawn();
+  tui.beginSelection(0, 1);
+  const exhausted = tui.scrollSelection(1, 1);
+  assert.ok(!exhausted, "top of content stops auto-scroll");
+  tui.endSelection();
+  drawn();
+});
+
 test("a wheel report scrolls the transcript, a click does not type", (t) => {
   const { terminal, drawn } = screenWithHistory(t);
   drawn(); // settle

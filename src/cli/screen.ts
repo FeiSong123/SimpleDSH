@@ -589,11 +589,20 @@ export class Screen {
           // Left button: click-drag selects text inside the rendered window.
           // The selection is highlighted live and copied to the system
           // clipboard (OSC 52) on release, which tmux forwards when its
-          // set-clipboard option is on.
+          // set-clipboard option is on. Dragging past the top or bottom edge
+          // auto-scrolls the viewport so a selection can span more than one
+          // screen of history.
           if (mouse.press && !mouse.motion) {
             this.#tui.beginSelection(mouse.y - 1, mouse.x - 1);
           } else if (mouse.press && mouse.motion) {
-            this.#tui.extendSelection(mouse.y - 1, mouse.x - 1);
+            const height = this.#tui.terminal.rows;
+            if (mouse.y <= 1) {
+              this.#tui.scrollSelection(1, mouse.x - 1);
+            } else if (mouse.y >= height) {
+              this.#tui.scrollSelection(-1, mouse.x - 1);
+            } else {
+              this.#tui.extendSelection(mouse.y - 1, mouse.x - 1);
+            }
           } else if (!mouse.press) {
             const selected = this.#tui.endSelection();
             if (selected !== null) this.#copySelection(selected);

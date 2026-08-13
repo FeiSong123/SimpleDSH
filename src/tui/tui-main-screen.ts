@@ -76,9 +76,15 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	private previousViewportTop = 0;
 	/** True while the screen is showing a history window rather than the newest content. */
 	private scrollModeActive = false;
-	/** Mouse selection: 0-based line/column into the visible window, or null when inactive. */
+	/** Mouse selection: 0-based line/column into fullContent, or null when inactive. */
 	private selectionAnchor: { readonly line: number; readonly col: number } | null = null;
 	private selectionHead: { readonly line: number; readonly col: number } | null = null;
+	/** The full rendered content, before scroll-window slicing. */
+	private fullContent: string[] = [];
+	/** The fullContent line currently shown at physical screen row 0. */
+	private visibleStart = 0;
+	/** The fullContent line at window row 0 while scroll mode is active. */
+	private windowStart = 0;
 
 	captureRenderState(): TuiMainScreenRenderState {
 		return {
@@ -105,13 +111,12 @@ export class TuiMainScreen extends TuiBase implements TUI {
 
 	/**
 	 * Start a mouse selection at a visible screen position (0-based row and
-	 * column). False when the row is outside the rendered window.
+	 * column). The point is stored in full-content coordinates, so scrolling
+	 * while dragging keeps the anchor on the same content.
 	 */
 	beginSelection(screenRow: number, screenCol: number): boolean {
-		// The mouse reports a physical screen row; map it to a line index in
-		// previousLines through the current viewport top.
-		const line = screenRow + this.previousViewportTop;
-		if (line < 0 || line >= this.previousLines.length) {
+		const line = this.visibleStart + screenRow;
+		if (line < 0 || line >= this.fullContent.length) {
 			this.clearSelection();
 			return false;
 		}
@@ -128,16 +133,34 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	/** Extend the active selection to a visible screen position. */
 	extendSelection(screenRow: number, screenCol: number): void {
 		if (this.selectionAnchor === null) return;
-		const line = screenRow + this.previousViewportTop;
-		const clampedRow = Math.max(
+		const line = Math.max(
 			0,
-			Math.min(line, this.previousLines.length - 1),
+			Math.min(
+				this.visibleStart + screenRow,
+				this.fullContent.length - 1,
+			),
 		);
 		this.selectionHead = Object.freeze({
-			line: clampedRow,
+			line,
 			col: Math.max(0, screenCol),
 		});
 		this.requestRender();
+	}
+
+	/**
+	 * Auto-scroll one line toward older content (direction 1) or newer
+	 * content (-1) and extend the selection to the newly visible edge row.
+	 * Returns false when there is no more content to reveal in that direction.
+	 */
+	scrollSelection(direction: 1 | -1, screenCol: number): boolean {
+		if (this.selectionAnchor === null) return false;
+		const before = this.scrollOffset;
+		this.scrollBy(direction);
+		this.renderNow();
+		if (this.scrollOffset === before) return false;
+		const edgeRow = direction === 1 ? 0 : this.terminal.rows - 1;
+		this.extendSelection(edgeRow, screenCol);
+		return true;
 	}
 
 	/** Finish the selection, return its plain text (null when empty), and clear it. */
@@ -174,7 +197,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			: { start: anchor, end: head };
 	}
 
-	/** The selected span of one visible line, or null when outside the selection. */
+	/** The selected span of one content line, or null when outside the selection. */
 	private selectionSpan(
 		lineIndex: number,
 		selection: { readonly start: { readonly line: number; readonly col: number }; readonly end: { readonly line: number; readonly col: number } },
@@ -189,11 +212,12 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	}
 
 	/** Apply reverse-video highlight to the selected spans of the visible window. */
-	private applySelectionHighlight(lines: string[]): string[] {
+	private applySelectionHighlight(lines: string[], firstContentLine: number): string[] {
 		const selection = this.orderedSelection();
 		if (selection === null) return lines;
 		return lines.map((line, index) => {
-			const span = this.selectionSpan(index, selection);
+			const contentLine = firstContentLine + index;
+			const span = this.selectionSpan(contentLine, selection);
 			if (span === null) return line;
 			const width = visibleWidth(line);
 			const from = Math.min(span.from, width);
@@ -216,7 +240,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			lineIndex <= selection.end.line;
 			lineIndex += 1
 		) {
-			const line = this.previousLines[lineIndex] ?? "";
+			const line = this.fullContent[lineIndex] ?? "";
 			const span = this.selectionSpan(lineIndex, selection);
 			if (span === null) continue;
 			const width = visibleWidth(line);
@@ -350,6 +374,11 @@ export class TuiMainScreen extends TuiBase implements TUI {
 
 		newLines = this.applyLineResets(newLines);
 
+		// The full rendered content, before any scroll-window slicing. Mouse
+		// selection coordinates live in this space so dragging across a scroll
+		// keeps the anchor on the same content.
+		this.fullContent = newLines;
+
 		// Helper to clear scrollback and viewport and render all new lines
 		// `clearScrollback` is false for the history viewport: entering or
 		// leaving it redraws the screen without destroying the terminal's own
@@ -393,6 +422,9 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			}
 			const bufferLength = Math.max(height, newLines.length);
 			this.previousViewportTop = Math.max(0, bufferLength - height);
+			this.visibleStart = this.scrollModeActive
+				? this.windowStart
+				: this.previousViewportTop;
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousKittyImageIds = this.collectKittyImageIds(newLines);
@@ -427,25 +459,37 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			this.scrollModeActive = enteringScroll;
 			this.scrollOffset = targetOffset;
 			const start = newLines.length - height - targetOffset;
-			const windowLines = newLines.slice(start, start + height);
+			this.windowStart = start;
+			this.visibleStart = start;
+			let windowLines = newLines.slice(start, start + height);
 			while (windowLines.length < height) windowLines.push("");
+			if (this.selectionAnchor !== null) {
+				windowLines = this.applySelectionHighlight(windowLines, start);
+			}
 			newLines = windowLines;
 			fullRender(true, false);
 			return;
 		}
+		// The fullContent line shown at physical screen row 0. In scroll mode
+		// the window is an explicit slice; otherwise the viewport top already
+		// names it.
+		let firstContentLine = prevViewportTop;
 		if (this.scrollModeActive) {
 			this.scrollOffset = targetOffset;
 			const start = newLines.length - height - targetOffset;
+			this.windowStart = start;
+			firstContentLine = start;
 			newLines = newLines.slice(start, start + height);
 			while (newLines.length < height) newLines.push("");
 		}
+		this.visibleStart = firstContentLine;
 
 		// Mouse selection highlight is applied to the visible window before any
 		// render path, so first render, full redraw and differential updates all
 		// show it. The highlighted lines are also what previousLines records, so
 		// moving or clearing the selection re-renders exactly the changed rows.
 		if (this.selectionAnchor !== null) {
-			newLines = this.applySelectionHighlight(newLines);
+			newLines = this.applySelectionHighlight(newLines, firstContentLine);
 		}
 
 		// First render - just output everything without clearing (assumes clean screen)
@@ -513,6 +557,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		if (firstChanged === -1) {
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousViewportTop = prevViewportTop;
+			this.visibleStart = this.scrollModeActive ? this.windowStart : prevViewportTop;
 			this.previousHeight = height;
 			return;
 		}
@@ -563,6 +608,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			this.previousWidth = width;
 			this.previousHeight = height;
 			this.previousViewportTop = prevViewportTop;
+			this.visibleStart = this.scrollModeActive ? this.windowStart : prevViewportTop;
 			return;
 		}
 
@@ -725,6 +771,9 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		// Track terminal's working area (grows but doesn't shrink unless cleared)
 		this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
 		this.previousViewportTop = Math.max(prevViewportTop, finalCursorRow - height + 1);
+		this.visibleStart = this.scrollModeActive
+			? this.windowStart
+			: this.previousViewportTop;
 
 		// Position hardware cursor for IME
 		this.positionHardwareCursor(cursorPos, newLines.length);
