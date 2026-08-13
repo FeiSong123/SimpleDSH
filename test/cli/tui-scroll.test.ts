@@ -192,6 +192,21 @@ function screenWithHistory(t: { after: (fn: () => void) => void }): {
   return { screen: instance, terminal, drawn };
 }
 
+test("highlight lands on the selected screen row in the non-scroll viewport", (t) => {
+  const { tui, terminal, drawn } = tallTui(t);
+  drawn(); // settle: rows 30..39 visible, viewportTop 30
+  // Select screen row 0 (content line 30). The next render must draw the
+  // reverse-video highlight on the row under the cursor, not on content
+  // line 0 which scrolled off screen long ago.
+  tui.beginSelection(0, 1);
+  tui.extendSelection(0, 7);
+  terminal.written = "";
+  const highlighted = drawn();
+  assert.match(highlighted, /\x1b\[7mline 3\x1b\[27m/u);
+  tui.endSelection();
+  drawn();
+});
+
 test("mouse selection maps the screen row through the viewport top", (t) => {
   const { tui, terminal, drawn } = tallTui(t);
   drawn(); // settle: rows 30..39 are on screen, viewportTop is 30

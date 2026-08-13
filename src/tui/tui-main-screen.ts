@@ -516,15 +516,20 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			fullRender(true, false);
 			return;
 		}
-		// The fullContent line shown at physical screen row 0. In scroll mode
-		// the window is an explicit slice; otherwise the viewport top already
-		// names it.
+		// The fullContent line shown at physical screen row 0, for mapping
+		// mouse rows. In scroll mode the window is an explicit slice; otherwise
+		// the viewport top names it.
 		let firstContentLine = prevViewportTop;
+		// The content line that newLines[0] corresponds to, for applying the
+		// highlight. After the scroll slice below, newLines[0] is the window's
+		// first line; before it, newLines[0] is full content line 0.
+		let highlightStart = 0;
 		if (this.scrollModeActive) {
 			this.scrollOffset = targetOffset;
 			const start = newLines.length - height - targetOffset;
 			this.windowStart = start;
 			firstContentLine = start;
+			highlightStart = start;
 			newLines = newLines.slice(start, start + height);
 			while (newLines.length < height) newLines.push("");
 		}
@@ -535,7 +540,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		// show it. The highlighted lines are also what previousLines records, so
 		// moving or clearing the selection re-renders exactly the changed rows.
 		if (this.selectionAnchor !== null) {
-			newLines = this.applySelectionHighlight(newLines, firstContentLine);
+			newLines = this.applySelectionHighlight(newLines, highlightStart);
 		}
 
 		// First render - just output everything without clearing (assumes clean screen)
