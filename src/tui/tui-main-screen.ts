@@ -148,6 +148,36 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	}
 
 	/**
+	 * The auto-scroll direction implied by the cursor sitting on an edge row,
+	 * or null when auto-scroll should not run. Only scrolls while the drag is
+	 * already moving that way: the top edge reveals older content when the
+	 * head is above the anchor, and the bottom edge reveals newer content
+	 * when the head is below it.
+	 */
+	selectionAutoScrollDirection(screenRow: number): 1 | -1 | null {
+		const anchor = this.selectionAnchor;
+		const head = this.selectionHead;
+		if (anchor === null || head === null) return null;
+		const height = this.terminal.rows;
+		const maxScroll = Math.max(0, this.fullContent.length - height);
+		if (
+			screenRow <= 0 &&
+			head.line <= anchor.line &&
+			this.scrollOffset < maxScroll
+		) {
+			return 1;
+		}
+		if (
+			screenRow >= height - 1 &&
+			head.line >= anchor.line &&
+			this.scrollOffset > 0
+		) {
+			return -1;
+		}
+		return null;
+	}
+
+	/**
 	 * Auto-scroll one line toward older content (direction 1) or newer
 	 * content (-1) and extend the selection to the newly visible edge row.
 	 * Returns false when there is no more content to reveal in that direction.

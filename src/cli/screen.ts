@@ -30,7 +30,8 @@ const ESCAPE = "\u001b";
 
 /** Rows one wheel notch scrolls, matching the feel of prime-agent. */
 const WHEEL_SCROLL_LINES = 3;
-/** Minimum time between selection auto-scroll steps while dragging at an edge. */
+/** Delay before edge auto-scroll starts, and the interval between its steps. */
+const SELECTION_AUTO_SCROLL_DELAY_MS = 150;
 const SELECTION_AUTO_SCROLL_INTERVAL_MS = 50;
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
@@ -146,8 +147,10 @@ export class Screen {
    */
   #tmuxWheelHint = false;
   #attached = false;
-  /** Monotonic timestamp of the last selection auto-scroll, for rate limiting. */
-  #lastAutoScrollAt = 0;
+  /** Timer that keeps auto-scrolling while the drag rests on an edge. */
+  #selectionAutoScrollTimer: ReturnType<typeof setTimeout> | null = null;
+  #selectionAutoScrollDirection: 1 | -1 | null = null;
+  #selectionAutoScrollCol = 0;
   readonly #commandNames: ReadonlySet<string>;
 
   constructor(options: ScreenOptions) {
@@ -498,6 +501,53 @@ export class Screen {
     timer.unref();
   }
 
+  /** Start or keep the selection auto-scroll timer for an edge drag. */
+  #updateSelectionAutoScroll(direction: 1 | -1, col: number): void {
+    if (
+      direction === this.#selectionAutoScrollDirection &&
+      this.#selectionAutoScrollTimer !== null
+    ) {
+      this.#selectionAutoScrollCol = col;
+      return;
+    }
+    this.#stopSelectionAutoScroll();
+    this.#selectionAutoScrollDirection = direction;
+    this.#selectionAutoScrollCol = col;
+    this.#selectionAutoScrollTimer = setTimeout(
+      () => this.#selectionAutoScrollTick(),
+      SELECTION_AUTO_SCROLL_DELAY_MS,
+    );
+  }
+
+  /** One auto-scroll step, rescheduled while the drag stays on the edge. */
+  #selectionAutoScrollTick(): void {
+    this.#selectionAutoScrollTimer = null;
+    const direction = this.#selectionAutoScrollDirection;
+    if (direction === null) return;
+    const scrolled = this.#tui.scrollSelection(
+      direction,
+      this.#selectionAutoScrollCol,
+    );
+    if (!scrolled) {
+      const edgeRow = direction === 1 ? 0 : this.#tui.terminal.rows - 1;
+      this.#tui.extendSelection(edgeRow, this.#selectionAutoScrollCol);
+      this.#stopSelectionAutoScroll();
+      return;
+    }
+    this.#selectionAutoScrollTimer = setTimeout(
+      () => this.#selectionAutoScrollTick(),
+      SELECTION_AUTO_SCROLL_INTERVAL_MS,
+    );
+  }
+
+  #stopSelectionAutoScroll(): void {
+    if (this.#selectionAutoScrollTimer !== null) {
+      clearTimeout(this.#selectionAutoScrollTimer);
+      this.#selectionAutoScrollTimer = null;
+    }
+    this.#selectionAutoScrollDirection = null;
+  }
+
   /** Copy text to the system clipboard via the OSC 52 escape sequence. */
   #copySelection(text: string): void {
     const base64 = Buffer.from(text, "utf8").toString("base64");
@@ -599,28 +649,18 @@ export class Screen {
           if (mouse.press && !mouse.motion) {
             this.#tui.beginSelection(mouse.y - 1, mouse.x - 1);
           } else if (mouse.press && mouse.motion) {
-            const height = this.#tui.terminal.rows;
-            const atTopEdge = mouse.y <= 1;
-            const atBottomEdge = mouse.y >= height;
-            if (atTopEdge || atBottomEdge) {
-              // Auto-scroll one line per interval, not per motion report:
-              // terminals can emit drag reports far faster than a repaint,
-              // and scrolling on every one is what made edge drags stutter.
-              const now = performance.now();
-              if (now - this.#lastAutoScrollAt >= SELECTION_AUTO_SCROLL_INTERVAL_MS) {
-                this.#lastAutoScrollAt = now;
-                const edgeRow = atTopEdge ? 0 : height - 1;
-                if (!this.#tui.scrollSelection(atTopEdge ? 1 : -1, mouse.x - 1)) {
-                  // No more content in that direction: pin the head to the
-                  // edge so the highlight still follows the cursor.
-                  this.#tui.extendSelection(edgeRow, mouse.x - 1);
-                }
-              }
+            const row = mouse.y - 1;
+            const direction = this.#tui.selectionAutoScrollDirection(row);
+            if (direction !== null) {
+              // Keep a timer running while the drag rests on the edge, so
+              // auto-scroll continues even when the mouse stops moving.
+              this.#updateSelectionAutoScroll(direction, mouse.x - 1);
             } else {
-              this.#lastAutoScrollAt = 0;
-              this.#tui.extendSelection(mouse.y - 1, mouse.x - 1);
+              this.#stopSelectionAutoScroll();
+              this.#tui.extendSelection(row, mouse.x - 1);
             }
           } else if (!mouse.press) {
+            this.#stopSelectionAutoScroll();
             const selected = this.#tui.endSelection();
             if (selected !== null) this.#copySelection(selected);
           }
