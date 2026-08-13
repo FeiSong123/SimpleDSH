@@ -162,14 +162,14 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		const maxScroll = Math.max(0, this.fullContent.length - height);
 		if (
 			screenRow <= 0 &&
-			head.line <= anchor.line &&
+			head.line < anchor.line &&
 			this.scrollOffset < maxScroll
 		) {
 			return 1;
 		}
 		if (
 			screenRow >= height - 1 &&
-			head.line >= anchor.line &&
+			head.line > anchor.line &&
 			this.scrollOffset > 0
 		) {
 			return -1;
