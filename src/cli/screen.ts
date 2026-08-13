@@ -30,6 +30,8 @@ const ESCAPE = "\u001b";
 
 /** Rows one wheel notch scrolls, matching the feel of prime-agent. */
 const WHEEL_SCROLL_LINES = 3;
+/** Minimum time between selection auto-scroll steps while dragging at an edge. */
+const SELECTION_AUTO_SCROLL_INTERVAL_MS = 50;
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const SPINNER_INTERVAL_MS = 90;
@@ -144,6 +146,8 @@ export class Screen {
    */
   #tmuxWheelHint = false;
   #attached = false;
+  /** Monotonic timestamp of the last selection auto-scroll, for rate limiting. */
+  #lastAutoScrollAt = 0;
   readonly #commandNames: ReadonlySet<string>;
 
   constructor(options: ScreenOptions) {
@@ -596,11 +600,24 @@ export class Screen {
             this.#tui.beginSelection(mouse.y - 1, mouse.x - 1);
           } else if (mouse.press && mouse.motion) {
             const height = this.#tui.terminal.rows;
-            if (mouse.y <= 1) {
-              this.#tui.scrollSelection(1, mouse.x - 1);
-            } else if (mouse.y >= height) {
-              this.#tui.scrollSelection(-1, mouse.x - 1);
+            const atTopEdge = mouse.y <= 1;
+            const atBottomEdge = mouse.y >= height;
+            if (atTopEdge || atBottomEdge) {
+              // Auto-scroll one line per interval, not per motion report:
+              // terminals can emit drag reports far faster than a repaint,
+              // and scrolling on every one is what made edge drags stutter.
+              const now = performance.now();
+              if (now - this.#lastAutoScrollAt >= SELECTION_AUTO_SCROLL_INTERVAL_MS) {
+                this.#lastAutoScrollAt = now;
+                const edgeRow = atTopEdge ? 0 : height - 1;
+                if (!this.#tui.scrollSelection(atTopEdge ? 1 : -1, mouse.x - 1)) {
+                  // No more content in that direction: pin the head to the
+                  // edge so the highlight still follows the cursor.
+                  this.#tui.extendSelection(edgeRow, mouse.x - 1);
+                }
+              }
             } else {
+              this.#lastAutoScrollAt = 0;
               this.#tui.extendSelection(mouse.y - 1, mouse.x - 1);
             }
           } else if (!mouse.press) {

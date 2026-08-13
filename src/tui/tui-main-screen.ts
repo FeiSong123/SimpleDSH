@@ -151,15 +151,31 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	 * Auto-scroll one line toward older content (direction 1) or newer
 	 * content (-1) and extend the selection to the newly visible edge row.
 	 * Returns false when there is no more content to reveal in that direction.
+	 *
+	 * This does not force a synchronous render: it computes the next window
+	 * start directly and leaves the repaint to the batched render timer, so
+	 * rapid edge motion reports stay smooth instead of re-rendering per event.
 	 */
 	scrollSelection(direction: 1 | -1, screenCol: number): boolean {
 		if (this.selectionAnchor === null) return false;
-		const before = this.scrollOffset;
-		this.scrollBy(direction);
-		this.renderNow();
-		if (this.scrollOffset === before) return false;
-		const edgeRow = direction === 1 ? 0 : this.terminal.rows - 1;
+		const height = this.terminal.rows;
+		const maxScroll = Math.max(0, this.fullContent.length - height);
+		const nextOffset = Math.max(
+			0,
+			Math.min(this.scrollOffset + direction, maxScroll),
+		);
+		if (nextOffset === this.scrollOffset) return false;
+		this.scrollOffset = nextOffset;
+		// The window start for the next render, computed here so extendSelection
+		// maps the edge row to the correct content line without waiting for a
+		// synchronous paint.
+		this.visibleStart = Math.max(
+			0,
+			this.fullContent.length - height - nextOffset,
+		);
+		const edgeRow = direction === 1 ? 0 : height - 1;
 		this.extendSelection(edgeRow, screenCol);
+		this.requestRender();
 		return true;
 	}
 
